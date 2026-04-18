@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx --yes create-next-app@latest . --typescript --tailwind --app --no-src-dir --import-alias \"@/*\" --eslint --use-npm --turbopack)",
+      "Read(//opt/homebrew/bin/**)",
+      "Read(//Users/gabs/.nvm/versions/**)",
+      "Read(//usr/local/**)",
+      "Bash(command -v node npm npx)",
+      "Read(//Users/gabs/**)",
+      "Read(//opt/**)",
+      "Read(//Applications/**)",
+      "Bash(brew list *)",
+      "Bash(brew install *)",
+      "Bash(npm --version)",
+      "Bash(npx --version)",
+      "Bash(npx --yes create-next-app@latest . --typescript --tailwind --app --no-src-dir --import-alias \"@/*\" --eslint --use-npm --turbopack --skip-install)"
+    ]
+  }
+}
