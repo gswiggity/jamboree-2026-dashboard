@@ -13,7 +13,11 @@
       "Bash(brew install *)",
       "Bash(npm --version)",
       "Bash(npx --version)",
-      "Bash(npx --yes create-next-app@latest . --typescript --tailwind --app --no-src-dir --import-alias \"@/*\" --eslint --use-npm --turbopack --skip-install)"
+      "Bash(npx --yes create-next-app@latest . --typescript --tailwind --app --no-src-dir --import-alias \"@/*\" --eslint --use-npm --turbopack --skip-install)",
+      "Bash(npm install *)",
+      "mcp__a18a29a9-07b6-48a6-8305-7c4e84e1fdb3__list_organizations",
+      "mcp__a18a29a9-07b6-48a6-8305-7c4e84e1fdb3__get_cost",
+      "Bash(npx --yes shadcn@latest init --defaults --yes)"
     ]
   }
 }
