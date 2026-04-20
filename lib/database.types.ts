@@ -660,6 +660,122 @@ export type Database = {
           },
         ]
       }
+      ticket_sales: {
+        Row: {
+          buyer_email: string
+          buyer_name: string
+          channel: string
+          created_at: string
+          created_by: string | null
+          id: string
+          notes: string
+          quantity: number
+          reference: string
+          sold_at: string
+          type_id: string
+          unit_price_cents: number
+          updated_at: string
+        }
+        Insert: {
+          buyer_email?: string
+          buyer_name?: string
+          channel?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string
+          quantity: number
+          reference?: string
+          sold_at?: string
+          type_id: string
+          unit_price_cents: number
+          updated_at?: string
+        }
+        Update: {
+          buyer_email?: string
+          buyer_name?: string
+          channel?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string
+          quantity?: number
+          reference?: string
+          sold_at?: string
+          type_id?: string
+          unit_price_cents?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_sales_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_sales_type_id_fkey"
+            columns: ["type_id"]
+            isOneToOne: false
+            referencedRelation: "ticket_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ticket_types: {
+        Row: {
+          archived_at: string | null
+          capacity: number | null
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          notes: string
+          on_date: string | null
+          price_cents: number
+          sort_order: number
+          start_time: string | null
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          capacity?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          notes?: string
+          on_date?: string | null
+          price_cents: number
+          sort_order?: number
+          start_time?: string | null
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          capacity?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          notes?: string
+          on_date?: string | null
+          price_cents?: number
+          sort_order?: number
+          start_time?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_types_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       volunteer_roles: {
         Row: {
           created_at: string

@@ -29,6 +29,7 @@ const ITEMS: Item[] = [
       { href: "/tasks", label: "Tasks" },
       { href: "/volunteers", label: "Volunteers" },
       { href: "/budget", label: "Budget" },
+      { href: "/tickets", label: "Tickets" },
     ],
   },
   { href: "/settings", label: "Settings" },
