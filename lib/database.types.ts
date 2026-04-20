@@ -300,6 +300,56 @@ export type Database = {
           },
         ]
       }
+      marketing_campaigns: {
+        Row: {
+          archived_at: string | null
+          cost_cents: number
+          created_at: string
+          created_by: string | null
+          ended_on: string | null
+          id: string
+          kind: string
+          name: string
+          notes: string
+          started_on: string | null
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          cost_cents?: number
+          created_at?: string
+          created_by?: string | null
+          ended_on?: string | null
+          id?: string
+          kind?: string
+          name: string
+          notes?: string
+          started_on?: string | null
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          cost_cents?: number
+          created_at?: string
+          created_by?: string | null
+          ended_on?: string | null
+          id?: string
+          kind?: string
+          name?: string
+          notes?: string
+          started_on?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketing_campaigns_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       phases: {
         Row: {
           blurb: string
@@ -664,6 +714,7 @@ export type Database = {
         Row: {
           buyer_email: string
           buyer_name: string
+          campaign_id: string | null
           channel: string
           created_at: string
           created_by: string | null
@@ -679,6 +730,7 @@ export type Database = {
         Insert: {
           buyer_email?: string
           buyer_name?: string
+          campaign_id?: string | null
           channel?: string
           created_at?: string
           created_by?: string | null
@@ -694,6 +746,7 @@ export type Database = {
         Update: {
           buyer_email?: string
           buyer_name?: string
+          campaign_id?: string | null
           channel?: string
           created_at?: string
           created_by?: string | null
@@ -707,6 +760,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "ticket_sales_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "marketing_campaigns"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "ticket_sales_created_by_fkey"
             columns: ["created_by"]

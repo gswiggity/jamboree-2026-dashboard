@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   CHANNELS,
   CHANNEL_LABELS,
+  type CampaignOption,
   type TicketChannel,
   type TicketSaleRow,
   type TicketTypeRow,
@@ -34,6 +35,7 @@ type SaleInput = {
   buyer_name: string
   buyer_email: string
   reference: string
+  campaign_id: string | null
   notes: string
 }
 
@@ -48,6 +50,7 @@ type FormState = {
   buyer_name: string
   buyer_email: string
   reference: string
+  campaign_id: string // "" == no attribution
   notes: string
 }
 
@@ -102,6 +105,7 @@ const DEFAULT_FORM = (): FormState => ({
   buyer_name: "",
   buyer_email: "",
   reference: "",
+  campaign_id: "",
   notes: "",
 })
 
@@ -110,6 +114,7 @@ export function SaleDialog({
   initial,
   defaultTypeId,
   types,
+  campaigns,
   onClose,
   onSubmit,
   onDelete,
@@ -118,6 +123,7 @@ export function SaleDialog({
   initial: TicketSaleRow | null
   defaultTypeId: string | null
   types: TicketTypeRow[]
+  campaigns: CampaignOption[]
   onClose: () => void
   onSubmit: (input: SaleInput) => Promise<SubmitResult>
   onDelete?: () => Promise<SubmitResult>
@@ -139,6 +145,19 @@ export function SaleDialog({
       }
     }
     return activeTypes
+  })()
+
+  // Same story for campaigns: only show active in the picker, but don't
+  // hide the campaign an existing sale is already attributed to.
+  const activeCampaigns = campaigns.filter((c) => !c.archived_at)
+  const campaignsForSelect = (() => {
+    if (mode === "edit" && initial && initial.campaign_id) {
+      const target = campaigns.find((c) => c.id === initial.campaign_id)
+      if (target && target.archived_at) {
+        return [...activeCampaigns, target]
+      }
+    }
+    return activeCampaigns
   })()
 
   const key =
@@ -168,6 +187,7 @@ export function SaleDialog({
         buyer_name: initial.buyer_name,
         buyer_email: initial.buyer_email,
         reference: initial.reference,
+        campaign_id: initial.campaign_id ?? "",
         notes: initial.notes,
       })
     }
@@ -213,6 +233,7 @@ export function SaleDialog({
       buyer_name: form.buyer_name,
       buyer_email: form.buyer_email,
       reference: form.reference,
+      campaign_id: form.campaign_id || null,
       notes: form.notes,
     }
 
@@ -373,6 +394,29 @@ export function SaleDialog({
               placeholder="Eventbrite order ID, comp code, etc."
               disabled={pending}
             />
+          </Field>
+
+          <Field label="Campaign" htmlFor="sale-campaign" optional>
+            <select
+              id="sale-campaign"
+              value={form.campaign_id}
+              onChange={(e) => patch({ campaign_id: e.target.value })}
+              disabled={pending}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">— None —</option>
+              {campaignsForSelect.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.archived_at ? " (archived)" : ""}
+                </option>
+              ))}
+            </select>
+            {campaignsForSelect.length === 0 && (
+              <p className="text-[11px] text-slate-500 pt-0.5">
+                Add campaigns under Marketing to attribute sales.
+              </p>
+            )}
           </Field>
 
           <Field label="Notes" htmlFor="sale-notes" optional>

@@ -33,7 +33,19 @@ export type TicketSaleRow = {
   buyer_name: string
   buyer_email: string
   reference: string
+  campaign_id: string | null
   notes: string
+}
+
+/**
+ * Slim campaign row the Tickets UI needs to show attribution and power
+ * the picker in the sale dialog. Full campaign management lives under
+ * /marketing; we just need to read.
+ */
+export type CampaignOption = {
+  id: string
+  name: string
+  archived_at: string | null
 }
 
 export const CHANNEL_LABELS: Record<TicketChannel, string> = {

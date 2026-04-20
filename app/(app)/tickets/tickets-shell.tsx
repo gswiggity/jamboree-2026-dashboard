@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import {
   Archive,
   Calendar,
+  Megaphone,
   Pencil,
   Plus,
   Ticket,
@@ -25,6 +26,7 @@ import { TypeDialog } from "./type-dialog"
 import { SaleDialog } from "./sale-dialog"
 import {
   CHANNEL_LABELS,
+  type CampaignOption,
   type TicketChannel,
   type TicketSaleRow,
   type TicketTypeRow,
@@ -33,9 +35,10 @@ import {
 type ShellProps = {
   types: TicketTypeRow[]
   sales: TicketSaleRow[]
+  campaigns: CampaignOption[]
 }
 
-export function TicketsShell({ types, sales }: ShellProps) {
+export function TicketsShell({ types, sales, campaigns }: ShellProps) {
   const [editingType, setEditingType] = useState<TicketTypeRow | null>(null)
   const [creatingType, setCreatingType] = useState(false)
   const [editingSale, setEditingSale] = useState<TicketSaleRow | null>(null)
@@ -45,6 +48,10 @@ export function TicketsShell({ types, sales }: ShellProps) {
   const [creatingSaleOpen, setCreatingSaleOpen] = useState(false)
 
   const typesById = useMemo(() => new Map(types.map((t) => [t.id, t])), [types])
+  const campaignsById = useMemo(
+    () => new Map(campaigns.map((c) => [c.id, c])),
+    [campaigns],
+  )
 
   // type_id → aggregate stats from sales
   const statsByType = useMemo(() => {
@@ -231,6 +238,7 @@ export function TicketsShell({ types, sales }: ShellProps) {
             <SalesLog
               sales={sales}
               typesById={typesById}
+              campaignsById={campaignsById}
               onEdit={setEditingSale}
             />
           )}
@@ -273,6 +281,7 @@ export function TicketsShell({ types, sales }: ShellProps) {
         initial={editingSale}
         defaultTypeId={creatingSaleTypeId}
         types={types}
+        campaigns={campaigns}
         onClose={() => {
           setCreatingSaleOpen(false)
           setCreatingSaleTypeId(null)
@@ -519,16 +528,21 @@ function TypeCard({
 function SalesLog({
   sales,
   typesById,
+  campaignsById,
   onEdit,
 }: {
   sales: TicketSaleRow[]
   typesById: Map<string, TicketTypeRow>
+  campaignsById: Map<string, CampaignOption>
   onEdit: (sale: TicketSaleRow) => void
 }) {
   return (
     <ul className="divide-y divide-slate-200/60 rounded-2xl border border-slate-200/70 overflow-hidden bg-white/60 text-sm">
       {sales.map((s) => {
         const type = typesById.get(s.type_id)
+        const campaign = s.campaign_id
+          ? campaignsById.get(s.campaign_id)
+          : undefined
         const total = s.quantity * s.unit_price_cents
         return (
           <li key={s.id}>
@@ -548,6 +562,12 @@ function SalesLog({
                   <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
                     {CHANNEL_LABELS[s.channel]}
                   </span>
+                  {campaign && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-900">
+                      <Megaphone className="h-3 w-3" />
+                      {campaign.name}
+                    </span>
+                  )}
                 </div>
                 <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-2 mt-0.5">
                   <span>{formatDateTime(s.sold_at)}</span>

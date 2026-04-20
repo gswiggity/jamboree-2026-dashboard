@@ -169,6 +169,7 @@ type SaleInput = {
   buyer_name: string
   buyer_email: string
   reference: string
+  campaign_id: string | null
   notes: string
 }
 
@@ -208,6 +209,7 @@ export async function createTicketSale(
       buyer_name: input.buyer_name.trim(),
       buyer_email: input.buyer_email.trim().toLowerCase(),
       reference: input.reference.trim(),
+      campaign_id: input.campaign_id,
       notes: input.notes.trim(),
       created_by: user.id,
     })
@@ -219,6 +221,7 @@ export async function createTicketSale(
   }
 
   revalidatePath("/tickets")
+  revalidatePath("/marketing")
   revalidatePath("/dashboard")
   return { ok: true, data: { id: data.id } }
 }
@@ -244,12 +247,14 @@ export async function updateTicketSale(
       buyer_name: input.buyer_name.trim(),
       buyer_email: input.buyer_email.trim().toLowerCase(),
       reference: input.reference.trim(),
+      campaign_id: input.campaign_id,
       notes: input.notes.trim(),
     })
     .eq("id", id)
 
   if (error) return { ok: false, error: error.message }
   revalidatePath("/tickets")
+  revalidatePath("/marketing")
   revalidatePath("/dashboard")
   return { ok: true, data: null }
 }
@@ -262,6 +267,7 @@ export async function deleteTicketSale(id: string): Promise<ActionResult> {
   if (error) return { ok: false, error: error.message }
 
   revalidatePath("/tickets")
+  revalidatePath("/marketing")
   revalidatePath("/dashboard")
   return { ok: true, data: null }
 }
