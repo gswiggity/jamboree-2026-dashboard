@@ -68,7 +68,24 @@
       "Bash(git check-ignore *)",
       "Bash(gh repo *)",
       "Bash(git config *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(ssh -T -o StrictHostKeyChecking=no -o ConnectTimeout=10 git@github.com)",
+      "Bash(git commit *)",
+      "Bash(gh auth *)",
+      "Bash(git fetch *)",
+      "Bash(vercel project *)",
+      "mcp__bf591bc6-9da5-4589-994b-524f205baa69__get_project",
+      "mcp__bf591bc6-9da5-4589-994b-524f205baa69__list_deployments",
+      "Bash(vercel ls *)",
+      "Bash(vercel logs *)",
+      "Bash(vercel inspect *)",
+      "Bash(vercel domains *)",
+      "Bash(curl -sI https://jamboree-nibbleware.vercel.app)",
+      "Bash(curl -sI https://jamboree-nibbleware.vercel.app/login)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }

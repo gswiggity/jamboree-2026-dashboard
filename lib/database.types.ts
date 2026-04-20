@@ -40,6 +40,87 @@ export type Database = {
           },
         ]
       }
+      budget_categories: {
+        Row: {
+          created_at: string
+          key: string
+          kind: string
+          label: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          key: string
+          kind: string
+          label: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          key?: string
+          kind?: string
+          label?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      budget_items: {
+        Row: {
+          actual_cents: number | null
+          category_key: string
+          created_at: string
+          created_by: string | null
+          description: string
+          id: string
+          incurred_at: string | null
+          notes: string
+          planned_cents: number
+          updated_at: string
+        }
+        Insert: {
+          actual_cents?: number | null
+          category_key: string
+          created_at?: string
+          created_by?: string | null
+          description: string
+          id?: string
+          incurred_at?: string | null
+          notes?: string
+          planned_cents: number
+          updated_at?: string
+        }
+        Update: {
+          actual_cents?: number | null
+          category_key?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          id?: string
+          incurred_at?: string | null
+          notes?: string
+          planned_cents?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_items_category_key_fkey"
+            columns: ["category_key"]
+            isOneToOne: false
+            referencedRelation: "budget_categories"
+            referencedColumns: ["key"]
+          },
+          {
+            foreignKeyName: "budget_items_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documents: {
         Row: {
           category: string

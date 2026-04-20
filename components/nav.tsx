@@ -28,6 +28,7 @@ const ITEMS: Item[] = [
     children: [
       { href: "/tasks", label: "Tasks" },
       { href: "/volunteers", label: "Volunteers" },
+      { href: "/budget", label: "Budget" },
     ],
   },
   { href: "/settings", label: "Settings" },
