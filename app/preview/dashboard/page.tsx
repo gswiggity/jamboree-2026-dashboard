@@ -294,8 +294,8 @@ export default function PreviewDashboardPage() {
         </section>
 
         <div className="pt-6 flex justify-center">
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/dashboard">Open real dashboard →</Link>
+          <Button variant="outline" size="sm" render={<Link href="/dashboard" />}>
+            Open real dashboard →
           </Button>
         </div>
       </div>
