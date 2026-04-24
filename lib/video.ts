@@ -62,8 +62,75 @@ export function toVimeoEmbed(raw: string): string | null {
   }
 }
 
+export function toInstagramEmbed(raw: string): string | null {
+  try {
+    const u = new URL(raw)
+    const host = u.hostname.replace(/^www\./i, "").toLowerCase()
+    if (host !== "instagram.com") return null
+    const parts = u.pathname.split("/").filter(Boolean)
+    // /p/{id}, /reel/{id}, /reels/{id}, /tv/{id}
+    const kindIdx = parts.findIndex((p) =>
+      p === "p" || p === "reel" || p === "reels" || p === "tv",
+    )
+    if (kindIdx < 0) return null
+    const kind = parts[kindIdx] === "reels" ? "reel" : parts[kindIdx]
+    const id = parts[kindIdx + 1]
+    if (!id || !/^[A-Za-z0-9_-]+$/.test(id)) return null
+    return `https://www.instagram.com/${kind}/${id}/embed/`
+  } catch {
+    return null
+  }
+}
+
+export function toTikTokEmbed(raw: string): string | null {
+  try {
+    const u = new URL(raw)
+    const host = u.hostname.replace(/^www\./i, "").toLowerCase()
+    if (host !== "tiktok.com") return null
+    // /@{user}/video/{id} or /embed/v2/{id}
+    const parts = u.pathname.split("/").filter(Boolean)
+    const videoIdx = parts.indexOf("video")
+    const id = videoIdx >= 0 ? parts[videoIdx + 1] : null
+    if (!id || !/^\d+$/.test(id)) return null
+    return `https://www.tiktok.com/embed/v2/${id}`
+  } catch {
+    return null
+  }
+}
+
+export function toGoogleDriveEmbed(raw: string): string | null {
+  try {
+    const u = new URL(raw)
+    const host = u.hostname.replace(/^www\./i, "").toLowerCase()
+    if (host !== "drive.google.com") return null
+    const parts = u.pathname.split("/").filter(Boolean)
+    // /file/d/{id}/(view|edit|preview)
+    if (parts[0] === "file" && parts[1] === "d" && parts[2]) {
+      const id = parts[2]
+      if (!/^[A-Za-z0-9_-]+$/.test(id)) return null
+      return `https://drive.google.com/file/d/${id}/preview`
+    }
+    // /open?id={id}
+    if (parts[0] === "open") {
+      const id = u.searchParams.get("id")
+      if (id && /^[A-Za-z0-9_-]+$/.test(id)) {
+        return `https://drive.google.com/file/d/${id}/preview`
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 export function toEmbedUrl(raw: string): string | null {
-  return toYouTubeEmbed(raw) ?? toVimeoEmbed(raw)
+  return (
+    toYouTubeEmbed(raw) ??
+    toVimeoEmbed(raw) ??
+    toInstagramEmbed(raw) ??
+    toTikTokEmbed(raw) ??
+    toGoogleDriveEmbed(raw)
+  )
 }
 
 export function looksLikeUrl(s: string): boolean {
