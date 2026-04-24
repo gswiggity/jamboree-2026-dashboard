@@ -96,9 +96,36 @@ export default async function JudgePage({
     redirect(`/judge?type=${type}`)
   }
 
-  const currentIdx = queueIds.indexOf(currentId)
-  const prevId = currentIdx > 0 ? queueIds[currentIdx - 1] : null
-  const nextId = currentIdx < queueIds.length - 1 ? queueIds[currentIdx + 1] : null
+  // Prev/next walk the *currently-active* queue (respecting the filter). If
+  // the current submission isn't in that queue — e.g. user arrived on a
+  // judged one while Skip-judged is ON — fall back to finding neighbors in
+  // queue order that *are* in the active queue.
+  const orderedSet = new Set(orderedIds)
+  let prevId: string | null = null
+  let nextId: string | null = null
+  let navPosition = 0
+  const navTotal = orderedIds.length
+
+  const navIdx = orderedIds.indexOf(currentId)
+  if (navIdx >= 0) {
+    prevId = navIdx > 0 ? orderedIds[navIdx - 1] : null
+    nextId = navIdx < orderedIds.length - 1 ? orderedIds[navIdx + 1] : null
+    navPosition = navIdx + 1
+  } else {
+    const fullIdx = queueIds.indexOf(currentId)
+    for (let i = fullIdx - 1; i >= 0; i--) {
+      if (orderedSet.has(queueIds[i])) {
+        prevId = queueIds[i]
+        break
+      }
+    }
+    for (let i = fullIdx + 1; i < queueIds.length; i++) {
+      if (orderedSet.has(queueIds[i])) {
+        nextId = queueIds[i]
+        break
+      }
+    }
+  }
 
   // Fetch everything we need for the current submission.
   const [
@@ -183,7 +210,9 @@ export default async function JudgePage({
         judged: judgedCount,
         total,
         remaining,
-        position: currentIdx + 1,
+        position: navPosition,
+        navTotal,
+        offQueue: navIdx < 0,
       }}
       prevId={prevId}
       nextId={nextId}

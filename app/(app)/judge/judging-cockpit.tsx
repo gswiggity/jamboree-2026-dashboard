@@ -13,6 +13,7 @@ import {
   EyeOff,
   Keyboard,
   Mic2,
+  SkipForward,
   X,
 } from "lucide-react"
 import { SUBMISSION_TYPES, TYPE_LABELS, type SubmissionType } from "@/lib/csv"
@@ -33,7 +34,9 @@ type Progress = {
   judged: number
   total: number
   remaining: number
-  position: number
+  position: number // position within the active (filter-aware) queue; 0 if off-queue
+  navTotal: number // size of the active queue
+  offQueue: boolean // true when current id isn't in the active queue (e.g. judged item w/ Skip-judged ON)
 }
 
 type Props = {
@@ -263,6 +266,19 @@ export function JudgingCockpit(props: Props) {
           // quick reveal / hide team verdicts
           setRevealed((r) => !r)
           break
+        case "j": {
+          // Toggle Skip-judged. Navigate to the mirror-image URL; server
+          // recomputes prev/next + lands us correctly.
+          e.preventDefault()
+          const nextFilter = filter === "unjudged" ? "all" : "unjudged"
+          const qs = new URLSearchParams({
+            type,
+            filter: nextFilter,
+            id: submission.id,
+          })
+          router.push(`/judge?${qs.toString()}`)
+          break
+        }
         case "enter":
           if (notesRef.current) {
             notesRef.current.focus()
@@ -273,7 +289,20 @@ export function JudgingCockpit(props: Props) {
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [autoAdvance, cancelAutoAdvance, cast, goTo, nextId, prevId, showHelp, skip])
+  }, [
+    autoAdvance,
+    cancelAutoAdvance,
+    cast,
+    goTo,
+    nextId,
+    prevId,
+    showHelp,
+    skip,
+    filter,
+    type,
+    submission.id,
+    router,
+  ])
 
   const notesDirty = notes !== savedNotes
   const progressPct = progress.total > 0 ? (progress.judged / progress.total) * 100 : 0
@@ -339,8 +368,25 @@ export function JudgingCockpit(props: Props) {
             <span className="tabular-nums">{progress.remaining} to go</span>
           </div>
           <div className="inline-flex items-center gap-2">
+            <SkipJudgedToggle
+              filter={filter}
+              type={type}
+              currentId={submission.id}
+            />
+            <span className="text-slate-300">·</span>
             <span className="tabular-nums">
-              #{progress.position} of {progress.total}
+              {progress.offQueue ? (
+                <span title="This one's been judged — turn off Skip-judged to navigate through it.">
+                  off queue
+                </span>
+              ) : (
+                <>
+                  #{progress.position} of {progress.navTotal}
+                  {filter === "unjudged" && (
+                    <span className="text-slate-400"> unjudged</span>
+                  )}
+                </>
+              )}
             </span>
             <div className="flex items-center gap-1">
               <NavPill
@@ -595,6 +641,55 @@ export function JudgingCockpit(props: Props) {
 
       {showHelp && <ShortcutsModal onClose={() => setShowHelp(false)} />}
     </div>
+  )
+}
+
+function SkipJudgedToggle({
+  filter,
+  type,
+  currentId,
+}: {
+  filter: "all" | "unjudged"
+  type: SubmissionType
+  currentId: string
+}) {
+  const enabled = filter === "unjudged"
+  const nextFilter = enabled ? "all" : "unjudged"
+  // Preserve the current id so the toggle doesn't tele-port them to the first
+  // unjudged; the server decides whether they stay on a judged item when
+  // Skip-judged is ON (navigates off-queue) vs. redirects.
+  const qs = new URLSearchParams({ type, filter: nextFilter, id: currentId })
+  return (
+    <Link
+      href={`/judge?${qs.toString()}`}
+      title={
+        enabled
+          ? "Skip-judged ON — prev/next walk only unjudged submissions (J to toggle)"
+          : "Skip-judged OFF — prev/next walk every submission (J to toggle)"
+      }
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 transition",
+        enabled
+          ? "border-blue-200 bg-blue-50 text-blue-900 hover:bg-blue-100"
+          : "border-slate-200 bg-white/70 text-slate-600 hover:bg-slate-100/70",
+      )}
+    >
+      <SkipForward className="h-3 w-3" />
+      <span className="font-semibold">Skip judged</span>
+      <span
+        className={cn(
+          "ml-0.5 relative inline-flex h-3.5 w-6 items-center rounded-full transition",
+          enabled ? "bg-blue-600" : "bg-slate-300",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute h-2.5 w-2.5 rounded-full bg-white shadow transition-transform",
+            enabled ? "translate-x-3" : "translate-x-0.5",
+          )}
+        />
+      </span>
+    </Link>
   )
 }
 
@@ -853,6 +948,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
           <Row k="S" v="Skip to next" />
           <Row k="← / →" v="Prev / Next submission" />
           <Row k="R" v="Toggle team verdicts" />
+          <Row k="J" v="Toggle Skip-judged filter" />
           <Row k="Enter" v="Focus notes" />
           <Row k="Esc" v="Cancel auto-advance / blur notes" />
           <Row k="?" v="Toggle this help" />
