@@ -2,6 +2,7 @@ import Link from "next/link"
 import { Gavel, Inbox, Mail } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { SUBMISSION_TYPES, TYPE_LABELS, type SubmissionType } from "@/lib/csv"
+import { buildCanonicalActFacets, canonicalActType } from "@/lib/act-types"
 import { cn } from "@/lib/utils"
 import { ActFacetsPicker } from "./facets-picker"
 
@@ -91,7 +92,7 @@ export default async function SubmissionsPage({
   const params = await searchParams
   const type: SubmissionType = isType(params.type) ? params.type : "act"
   const filter: FilterKey = isFilter(params.filter) ? params.filter : "all"
-  const actType = params.actType ?? "all"
+  const actTypeRaw = params.actType ?? "all"
   const location = params.location ?? "all"
 
   const supabase = await createClient()
@@ -123,7 +124,7 @@ export default async function SubmissionsPage({
 
   const typeFacets =
     type === "act"
-      ? buildFacet(
+      ? buildCanonicalActFacets(
           (submissions ?? []).map((s) => {
             const d = s.data as Record<string, unknown> | null
             const v = d?.["GroupAct Type"]
@@ -131,6 +132,13 @@ export default async function SubmissionsPage({
           }),
         )
       : []
+  // Resolve the URL-supplied actType against canonical facet keys; collapse
+  // stale/unknown values (e.g. pre-canonicalization links like "stand up")
+  // back to "all" so results don't silently zero out.
+  const actType =
+    actTypeRaw === "all" || typeFacets.some((f) => f.key === actTypeRaw)
+      ? actTypeRaw
+      : "all"
   const locationFacets =
     type === "act"
       ? buildFacet(
@@ -147,7 +155,7 @@ export default async function SubmissionsPage({
     const d = s.data as Record<string, unknown> | null
     const rawType = typeof d?.["GroupAct Type"] === "string" ? (d!["GroupAct Type"] as string) : ""
     const rawLoc = typeof d?.["Location"] === "string" ? (d!["Location"] as string) : ""
-    if (actType !== "all" && normalizeKey(rawType) !== actType) return false
+    if (actType !== "all" && canonicalActType(rawType).key !== actType) return false
     if (location !== "all" && normalizeKey(rawLoc) !== location) return false
     return true
   })
