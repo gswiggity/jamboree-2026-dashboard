@@ -16,6 +16,7 @@ const ITEMS: Item[] = [
     label: "Talent",
     children: [
       { href: "/submissions", label: "Submissions" },
+      { href: "/performers", label: "Performers" },
       { href: "/judge", label: "Judging" },
       { href: "/lineup", label: "Lineup" },
     ],
