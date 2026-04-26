@@ -109,9 +109,14 @@ function ThreadList({
   accountEmail: string | null
   queryEmail: string
 }) {
-  const allMail = `https://mail.google.com/mail/u/${
-    accountEmail ?? 0
-  }/#search/${encodeURIComponent(`from:"${queryEmail}" OR to:"${queryEmail}"`)}`
+  // Gmail's `/mail/u/<n>/` expects an integer index; `?authuser=<email>` lets
+  // us target a specific account by address regardless of how Gmail has it
+  // ordered locally. Falling back to `/u/0/` if we don't know the email.
+  const accountQS = accountEmail
+    ? `?authuser=${encodeURIComponent(accountEmail)}`
+    : ""
+  const accountPath = accountEmail ? "" : "u/0/"
+  const allMail = `https://mail.google.com/mail/${accountPath}${accountQS}#search/${encodeURIComponent(`from:${queryEmail} OR to:${queryEmail}`)}`
 
   if (threads.length === 0) {
     return (
@@ -139,9 +144,7 @@ function ThreadList({
     <div className="space-y-2">
       <ul className="divide-y -mx-1">
         {threads.map((t) => {
-          const url = `https://mail.google.com/mail/u/${
-            accountEmail ?? 0
-          }/#all/${t.id}`
+          const url = `https://mail.google.com/mail/${accountPath}${accountQS}#all/${t.id}`
           return (
             <li key={t.id} className="px-1 py-2">
               <a
