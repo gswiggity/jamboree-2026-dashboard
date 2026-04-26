@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
+  buildEmailQuery,
   getAccessTokenForRequest,
   searchThreadsByEmail,
   type GmailThreadSummary,
@@ -116,7 +117,7 @@ function ThreadList({
     ? `?authuser=${encodeURIComponent(accountEmail)}`
     : ""
   const accountPath = accountEmail ? "" : "u/0/"
-  const allMail = `https://mail.google.com/mail/${accountPath}${accountQS}#search/${encodeURIComponent(`from:${queryEmail} OR to:${queryEmail}`)}`
+  const allMail = `https://mail.google.com/mail/${accountPath}${accountQS}#search/${encodeURIComponent(buildEmailQuery(queryEmail))}`
 
   if (threads.length === 0) {
     return (

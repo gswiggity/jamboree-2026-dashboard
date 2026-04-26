@@ -185,13 +185,19 @@ async function gmailFetch<T>(
   return (await r.json()) as T
 }
 
+export function buildEmailQuery(email: string): string {
+  // Match anywhere this address appears on a message — sender or recipient
+  // (To / CC / BCC). BCC only resolves in the Sent folder since it's stripped
+  // from received headers, which is exactly what we want.
+  return `from:${email} OR to:${email} OR cc:${email} OR bcc:${email}`
+}
+
 export async function searchThreadsByEmail(
   accessToken: string,
   email: string,
   maxResults = 20,
 ): Promise<GmailThreadSummary[]> {
-  // Quote the email so Gmail treats it as a single token.
-  const q = `from:"${email}" OR to:"${email}"`
+  const q = buildEmailQuery(email)
   const list = await gmailFetch<{ threads?: { id: string }[] }>(
     accessToken,
     `/users/me/threads?q=${encodeURIComponent(q)}&maxResults=${maxResults}`,
