@@ -49,6 +49,7 @@ export default async function JudgePage({
     .from("submissions")
     .select("id")
     .eq("type", type)
+    .is("deleted_at", null)
     .order("submitted_at", { ascending: false, nullsFirst: false })
 
   const queueIds = (queue ?? []).map((r) => r.id)
@@ -135,8 +136,11 @@ export default async function JudgePage({
   ] = await Promise.all([
     supabase
       .from("submissions")
-      .select("id, type, name, email, submitted_at, data")
+      .select(
+        "id, type, name, email, submitted_at, data, supplemental_video_url",
+      )
       .eq("id", currentId)
+      .is("deleted_at", null)
       .single(),
     supabase
       .from("judgments")
@@ -154,7 +158,16 @@ export default async function JudgePage({
   if (!submission) redirect(`/judge?type=${type}`)
 
   const data = (submission.data as Record<string, unknown>) ?? {}
-  const videoEmbed = firstVideoEmbed(data)
+  const supplementalVideoUrl = submission.supplemental_video_url ?? null
+  const supplementalEmbedRaw = supplementalVideoUrl
+    ? toEmbedUrl(supplementalVideoUrl)
+    : null
+  const supplementalEmbed = supplementalEmbedRaw
+    ? `${supplementalEmbedRaw}${supplementalEmbedRaw.includes("?") ? "&" : "?"}autoplay=1&mute=1&muted=1`
+    : null
+  const videoEmbed = supplementalEmbed ?? firstVideoEmbed(data)
+  const hasAutoDetectedVideo =
+    !supplementalVideoUrl && firstVideoEmbed(data) !== null
 
   // Surface a handful of key CSV fields prominently, drop the rest into "more".
   const PREFERRED_KEYS_ACT = [
@@ -201,6 +214,8 @@ export default async function JudgePage({
       type={type}
       typeLabel={TYPE_LABELS[type]}
       videoEmbed={videoEmbed}
+      supplementalVideoUrl={supplementalVideoUrl}
+      hasAutoDetectedVideo={hasAutoDetectedVideo}
       highlighted={highlighted}
       other={other}
       myVerdict={(myJudgment?.verdict as "yes" | "no" | "maybe" | null) ?? null}

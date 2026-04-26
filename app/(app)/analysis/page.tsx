@@ -15,7 +15,8 @@ export default async function AnalysisPage() {
   const [{ data: submissions }, { data: counts }] = await Promise.all([
     supabase
       .from("submissions")
-      .select("id, type, name, email, submitted_at, created_at, data"),
+      .select("id, type, name, email, submitted_at, created_at, data")
+      .is("deleted_at", null),
     supabase
       .from("submission_verdict_counts")
       .select("submission_id, type, yes_count, no_count, maybe_count, total_judgments"),

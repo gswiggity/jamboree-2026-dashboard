@@ -11,8 +11,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { BlockCommentsPanel, type BlockComment } from "./block-comments"
+import { FESTIVAL_DAYS } from "./festival"
 import {
-  FESTIVAL_DAYS,
   submissionMeta,
   timeToMinutes,
   type Block,

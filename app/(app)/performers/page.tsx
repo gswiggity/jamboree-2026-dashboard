@@ -21,6 +21,7 @@ export default async function PerformersPage() {
     .from("submissions")
     .select("id, type, name, email, submitted_at, data")
     .in("type", ["act", "workshop"])
+    .is("deleted_at", null)
     .order("submitted_at", { ascending: false, nullsFirst: false })
 
   const subs: SubmissionLite[] = (submissions ?? []).map((s) => ({

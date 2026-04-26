@@ -6,9 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { buttonVariants } from "@/components/ui/button"
 import { JudgingForm } from "@/components/judging-form"
+import { VideoLinkEditor } from "@/components/video-link-editor"
 import { TYPE_LABELS, type SubmissionType } from "@/lib/csv"
 import { cn } from "@/lib/utils"
 import { looksLikeUrl, toEmbedUrl } from "@/lib/video"
+import { ConversationsCard } from "./conversations-card"
+import { TrashedBanner } from "./trashed-banner"
 
 const VERDICT_BADGE: Record<string, string> = {
   yes: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
@@ -57,7 +60,9 @@ export default async function SubmissionDetailPage({
 
   const { data: submission, error } = await supabase
     .from("submissions")
-    .select("id, type, name, email, submitted_at, data, created_at")
+    .select(
+      "id, type, name, email, submitted_at, data, created_at, supplemental_video_url, deleted_at",
+    )
     .eq("id", id)
     .single()
 
@@ -81,6 +86,17 @@ export default async function SubmissionDetailPage({
     (submission.data as Record<string, unknown>) ?? {},
   ).filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== "")
 
+  const supplementalVideoUrl = submission.supplemental_video_url ?? null
+  const supplementalEmbed = supplementalVideoUrl
+    ? toEmbedUrl(supplementalVideoUrl)
+    : null
+  const hasAutoDetectedVideo = !supplementalVideoUrl
+    ? dataEntries.some(([, v]) => {
+        const s = String(v).trim()
+        return /^https?:\/\//i.test(s) && toEmbedUrl(s) !== null
+      })
+    : false
+
   let prevId: string | null = null
   let nextId: string | null = null
   let indexLabel: string | null = null
@@ -91,6 +107,7 @@ export default async function SubmissionDetailPage({
       .from("submissions")
       .select("id, data")
       .eq("type", navType)
+      .is("deleted_at", null)
       .order("submitted_at", { ascending: false, nullsFirst: false })
 
     let ordered = list ?? []
@@ -222,6 +239,13 @@ export default async function SubmissionDetailPage({
         )}
       </div>
 
+      {submission.deleted_at && (
+        <TrashedBanner
+          submissionId={submission.id}
+          deletedAt={submission.deleted_at}
+        />
+      )}
+
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -300,6 +324,42 @@ export default async function SubmissionDetailPage({
         <div className="space-y-6">
           <Card>
             <CardHeader>
+              <CardTitle>
+                Performance video{supplementalVideoUrl ? " (added)" : ""}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {supplementalVideoUrl && (
+                <a
+                  href={supplementalVideoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-sm text-primary hover:underline underline-offset-4 break-all"
+                >
+                  {supplementalVideoUrl}
+                </a>
+              )}
+              {supplementalEmbed && (
+                <div className="aspect-video overflow-hidden rounded-md border bg-muted">
+                  <iframe
+                    src={supplementalEmbed}
+                    title="Performance video"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="size-full"
+                  />
+                </div>
+              )}
+              <VideoLinkEditor
+                submissionId={submission.id}
+                supplementalUrl={supplementalVideoUrl}
+                hasAutoDetectedVideo={hasAutoDetectedVideo}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Your judgment</CardTitle>
             </CardHeader>
             <CardContent>
@@ -312,6 +372,8 @@ export default async function SubmissionDetailPage({
               />
             </CardContent>
           </Card>
+
+          <ConversationsCard submissionEmail={submission.email} />
 
           <Card>
             <CardHeader>

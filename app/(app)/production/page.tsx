@@ -70,6 +70,7 @@ export default async function ProductionPage({
         .from("submissions")
         .select("id, type, name, email, data")
         .in("type", ["act", "workshop"])
+        .is("deleted_at", null)
         .order("name", { ascending: true })
     : { data: [] }
 

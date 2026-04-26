@@ -35,6 +35,7 @@ export default async function VolunteersPage() {
       .from("submissions")
       .select("id, name, email")
       .eq("type", "volunteer")
+      .is("deleted_at", null)
       .order("name", { ascending: true, nullsFirst: false }),
   ])
 

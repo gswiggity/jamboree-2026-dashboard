@@ -87,6 +87,7 @@ export default async function LineupPage({
         .from("submissions")
         .select("id, name, email, submitted_at, data")
         .in("id", ids)
+        .is("deleted_at", null)
     : { data: [] as Array<{ id: string; name: string | null; email: string | null; submitted_at: string | null; data: unknown }> }
 
   const subMap = new Map((submissions ?? []).map((s) => [s.id, s]))

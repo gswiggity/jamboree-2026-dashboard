@@ -85,7 +85,27 @@
       "Bash(vercel domains *)",
       "Bash(curl -sI https://jamboree-nibbleware.vercel.app)",
       "Bash(curl -sI https://jamboree-nibbleware.vercel.app/login)",
-      "Bash(echo \"exit=$?\")"
+      "Bash(echo \"exit=$?\")",
+      "mcp__a3c14f26-2ae6-4392-ac23-400ac8d6de3e__notion-search",
+      "mcp__a3c14f26-2ae6-4392-ac23-400ac8d6de3e__notion-fetch",
+      "mcp__a3c14f26-2ae6-4392-ac23-400ac8d6de3e__notion-update-page",
+      "Bash(npx tsx -e ' *)",
+      "Bash(git rev-list *)",
+      "mcp__Control_Chrome__open_url",
+      "mcp__Control_Chrome__get_current_tab",
+      "mcp__Control_Chrome__list_tabs",
+      "mcp__Control_Chrome__get_page_content",
+      "mcp__Control_Chrome__reload_tab",
+      "Bash(awk -F',' 'NR==2 || NR==3 || NR==5 {print NR\": \"$2\" | primary=\"$3\" | email=\"$4\" | performers=\"$8}' /Users/gabs/Documents/claude/jamboree/data/acts_sample.csv)",
+      "Bash(awk -F',' 'NR > 1 {print $8}' /Users/gabs/Documents/claude/jamboree/data/acts_sample.csv)",
+      "Bash(awk -F',' 'NR > 1 {print $7}' /Users/gabs/Documents/claude/jamboree/data/acts_sample.csv)",
+      "Bash(node -e ' *)",
+      "WebFetch(domain:www.sawubonacreativityproject.org)",
+      "WebFetch(domain:www.crowdwork.com)",
+      "Bash(git checkout *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/production/programming)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/production/programming/00000000-0000-0000-0000-000000000000)",
+      "Bash(grep -n \"supplemental_video_url\\\\|submissions\\\\b.*select\\\\|<TableRow\\\\|<tr\\\\|<Link\\\\|/submissions/\\\\${\" /Users/gabs/Documents/claude/jamboree/app/\\\\\\(app\\\\\\)/submissions/page.tsx)"
     ]
   }
 }

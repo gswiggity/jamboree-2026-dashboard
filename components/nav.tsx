@@ -7,7 +7,7 @@ import { ChevronDown } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
-type Leaf = { href: string; label: string }
+type Leaf = { href: string; label: string; exact?: boolean }
 type Item = Leaf | { label: string; children: Leaf[] }
 
 const ITEMS: Item[] = [
@@ -22,7 +22,13 @@ const ITEMS: Item[] = [
     ],
   },
   { href: "/analysis", label: "Analysis" },
-  { href: "/production", label: "Production" },
+  {
+    label: "Production",
+    children: [
+      { href: "/production", label: "Schedule", exact: true },
+      { href: "/production/programming", label: "Programming" },
+    ],
+  },
   { href: "/documents", label: "Documents" },
   {
     label: "Ops",
@@ -37,7 +43,8 @@ const ITEMS: Item[] = [
   { href: "/settings", label: "Settings" },
 ]
 
-function isActive(pathname: string, href: string) {
+function isActive(pathname: string, href: string, exact = false) {
+  if (exact) return pathname === href
   return pathname === href || pathname.startsWith(href + "/")
 }
 
@@ -110,7 +117,7 @@ function GroupMenu({
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
-  const childActive = item.children.some((c) => isActive(pathname, c.href))
+  const childActive = item.children.some((c) => isActive(pathname, c.href, c.exact))
 
   // Close on outside click / escape.
   useEffect(() => {
@@ -168,7 +175,7 @@ function GroupMenu({
         >
           <div className="rounded-2xl border border-white/70 bg-white/90 backdrop-blur-xl shadow-[0_12px_32px_-16px_rgba(15,23,42,0.25)] overflow-hidden p-1">
             {item.children.map((c, idx) => {
-              const active = isActive(pathname, c.href)
+              const active = isActive(pathname, c.href, c.exact)
               return (
                 <Link
                   key={c.href}

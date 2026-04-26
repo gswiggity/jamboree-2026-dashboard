@@ -46,6 +46,7 @@ export async function castVerdictAndAdvance(
     .from("submissions")
     .select("id")
     .eq("type", type)
+    .is("deleted_at", null)
     .order("submitted_at", { ascending: false, nullsFirst: false })
 
   if (queueErr) {

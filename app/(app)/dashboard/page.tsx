@@ -77,7 +77,10 @@ export default async function DashboardPage() {
     { data: phaseRow },
     { data: phases },
   ] = await Promise.all([
-    supabase.from("submissions").select("id, type, submitted_at"),
+    supabase
+      .from("submissions")
+      .select("id, type, submitted_at")
+      .is("deleted_at", null),
     supabase.from("judgments").select("submission_id, verdict").eq("user_id", user!.id),
     supabase
       .from("judgments")

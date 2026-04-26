@@ -7,6 +7,7 @@ import { CsvUploader } from "./csv-uploader"
 import { PhaseSelector } from "./phase-selector"
 import { PhaseManager } from "./phase-manager"
 import { AllowlistManager } from "./allowlist-manager"
+import { GmailIntegrationCard } from "./gmail-card"
 
 export default async function SettingsPage() {
   const supabase = await createClient()
@@ -27,6 +28,7 @@ export default async function SettingsPage() {
     { data: phases },
     { data: allowed },
     { data: profiles },
+    { data: gmailRow },
   ] = await Promise.all([
     supabase
       .from("festival_settings")
@@ -48,6 +50,15 @@ export default async function SettingsPage() {
           .from("profiles")
           .select("id, email, full_name, role, created_at")
           .order("created_at", { ascending: true })
+      : Promise.resolve({ data: null }),
+    isAdmin
+      ? supabase
+          .from("gmail_integration")
+          .select(
+            "account_email, refresh_token, connected_at, last_used_at",
+          )
+          .eq("id", true)
+          .maybeSingle()
       : Promise.resolve({ data: null }),
   ])
 
@@ -149,6 +160,13 @@ export default async function SettingsPage() {
 
       {isAdmin && (
         <>
+          <GmailIntegrationCard
+            connected={!!gmailRow?.refresh_token}
+            accountEmail={gmailRow?.account_email ?? null}
+            connectedAt={gmailRow?.connected_at ?? null}
+            lastUsedAt={gmailRow?.last_used_at ?? null}
+          />
+
           <Card>
             <CardHeader>
               <CardTitle>Team members</CardTitle>

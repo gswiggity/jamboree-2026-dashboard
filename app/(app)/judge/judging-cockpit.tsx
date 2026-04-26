@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react"
 import { SUBMISSION_TYPES, TYPE_LABELS, type SubmissionType } from "@/lib/csv"
+import { VideoLinkEditor } from "@/components/video-link-editor"
 import { castVerdictAndAdvance } from "./actions"
 import { cn } from "@/lib/utils"
 
@@ -49,6 +50,8 @@ type Props = {
   type: SubmissionType
   typeLabel: string
   videoEmbed: string | null
+  supplementalVideoUrl: string | null
+  hasAutoDetectedVideo: boolean
   highlighted: [string, string][]
   other: [string, string][]
   myVerdict: Verdict | null
@@ -103,6 +106,8 @@ export function JudgingCockpit(props: Props) {
     submission,
     type,
     videoEmbed,
+    supplementalVideoUrl,
+    hasAutoDetectedVideo,
     highlighted,
     other,
     teamJudgments,
@@ -472,6 +477,13 @@ export function JudgingCockpit(props: Props) {
                 No video URL found in this submission.
               </div>
             )}
+            <div className="mt-2">
+              <VideoLinkEditor
+                submissionId={submission.id}
+                supplementalUrl={supplementalVideoUrl}
+                hasAutoDetectedVideo={hasAutoDetectedVideo}
+              />
+            </div>
           </div>
 
           {highlighted.length > 0 && (

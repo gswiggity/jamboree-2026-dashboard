@@ -4,13 +4,17 @@ import { createClient } from "@/lib/supabase/server"
 import { SUBMISSION_TYPES, TYPE_LABELS, type SubmissionType } from "@/lib/csv"
 import { buildCanonicalActFacets, canonicalActType } from "@/lib/act-types"
 import { cn } from "@/lib/utils"
+import { toEmbedUrl } from "@/lib/video"
 import { ActFacetsPicker } from "./facets-picker"
+import { RowVideoButton } from "./row-video-button"
+import { RowTrashButton } from "./row-trash-button"
 
 type Search = {
   type?: string
   filter?: string
   actType?: string
   location?: string
+  view?: string
 }
 
 type FilterKey = "all" | "unjudged" | "yes" | "maybe" | "no"
@@ -94,6 +98,7 @@ export default async function SubmissionsPage({
   const filter: FilterKey = isFilter(params.filter) ? params.filter : "all"
   const actTypeRaw = params.actType ?? "all"
   const location = params.location ?? "all"
+  const view: "active" | "trash" = params.view === "trash" ? "trash" : "active"
 
   const supabase = await createClient()
   const {
@@ -102,19 +107,38 @@ export default async function SubmissionsPage({
 
   const [{ data: submissions }, { data: lastUpdatedRow }, { data: allTypes }] =
     await Promise.all([
-      supabase
-        .from("submissions")
-        .select("id, type, name, email, submitted_at, created_at, data")
-        .eq("type", type)
-        .order("submitted_at", { ascending: false, nullsFirst: false }),
+      view === "trash"
+        ? supabase
+            .from("submissions")
+            .select(
+              "id, type, name, email, submitted_at, created_at, data, supplemental_video_url, deleted_at",
+            )
+            .eq("type", type)
+            .not("deleted_at", "is", null)
+            .order("deleted_at", { ascending: false, nullsFirst: false })
+        : supabase
+            .from("submissions")
+            .select(
+              "id, type, name, email, submitted_at, created_at, data, supplemental_video_url, deleted_at",
+            )
+            .eq("type", type)
+            .is("deleted_at", null)
+            .order("submitted_at", { ascending: false, nullsFirst: false }),
       supabase
         .from("submissions")
         .select("updated_at")
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      supabase.from("submissions").select("type"),
+      supabase.from("submissions").select("type").is("deleted_at", null),
     ])
+
+  // Trash count for the toggle pill.
+  const { count: trashCount } = await supabase
+    .from("submissions")
+    .select("id", { count: "exact", head: true })
+    .eq("type", type)
+    .not("deleted_at", "is", null)
 
   // Per-type counts for the tab pills.
   const typeCounts: Record<SubmissionType, number> = { act: 0, volunteer: 0, workshop: 0 }
@@ -229,6 +253,8 @@ export default async function SubmissionsPage({
       if (nextActType !== "all") sp.set("actType", nextActType)
       if (nextLoc !== "all") sp.set("location", nextLoc)
     }
+    const nextView = next.view ?? (view === "trash" ? "trash" : undefined)
+    if (nextView === "trash") sp.set("view", "trash")
     return `/submissions?${sp.toString()}`
   }
 
@@ -290,10 +316,10 @@ export default async function SubmissionsPage({
           {SUBMISSION_TYPES.map((t) => (
             <Link
               key={t}
-              href={makeHref({ type: t, filter: "all", actType: "all", location: "all" })}
+              href={makeHref({ type: t, filter: "all", actType: "all", location: "all", view: undefined })}
               className={cn(
                 "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition",
-                t === type
+                t === type && view !== "trash"
                   ? "bg-blue-950 text-white"
                   : "text-slate-700 hover:text-slate-950 hover:bg-slate-100/70",
               )}
@@ -302,13 +328,35 @@ export default async function SubmissionsPage({
               <span
                 className={cn(
                   "tabular-nums text-xs",
-                  t === type ? "text-white/70" : "text-slate-500",
+                  t === type && view !== "trash" ? "text-white/70" : "text-slate-500",
                 )}
               >
                 {typeCounts[t]}
               </span>
             </Link>
           ))}
+          <div className="ml-auto">
+            <Link
+              href={
+                view === "trash"
+                  ? makeHref({ view: undefined })
+                  : `/submissions?type=${type}&view=trash`
+              }
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition border",
+                view === "trash"
+                  ? "bg-rose-100 text-rose-900 border-rose-200"
+                  : "border-transparent text-slate-600 hover:text-slate-950 hover:bg-slate-100/70",
+              )}
+            >
+              {view === "trash" ? "← Active" : "Trash"}
+              {view !== "trash" && (trashCount ?? 0) > 0 && (
+                <span className="tabular-nums text-xs text-slate-500">
+                  {trashCount}
+                </span>
+              )}
+            </Link>
+          </div>
         </div>
 
         {/* Filter row */}
@@ -412,6 +460,17 @@ export default async function SubmissionsPage({
                   : s.email
                   ? [s.email]
                   : []
+              const supplementalUrl = s.supplemental_video_url ?? null
+              const autoVideo =
+                !supplementalUrl && d
+                  ? Object.values(d).some((v) => {
+                      if (v == null) return false
+                      const str = String(v).trim()
+                      return (
+                        /^https?:\/\//i.test(str) && toEmbedUrl(str) !== null
+                      )
+                    })
+                  : false
               return (
                 <SubmissionRow
                   key={s.id}
@@ -428,6 +487,10 @@ export default async function SubmissionsPage({
                     total: c?.total_judgments ?? 0,
                   }}
                   detailHref={makeDetailHref(s.id)}
+                  supplementalVideoUrl={supplementalUrl}
+                  hasAutoDetectedVideo={autoVideo}
+                  view={view}
+                  deletedAt={s.deleted_at}
                 />
               )
             })}
@@ -471,6 +534,10 @@ function SubmissionRow({
   myVerdict,
   counts,
   detailHref,
+  supplementalVideoUrl,
+  hasAutoDetectedVideo,
+  view,
+  deletedAt,
 }: {
   id: string
   name: string
@@ -480,13 +547,35 @@ function SubmissionRow({
   myVerdict: string | null
   counts: { yes: number; maybe: number; no: number; total: number }
   detailHref: string
+  supplementalVideoUrl: string | null
+  hasAutoDetectedVideo: boolean
+  view: "active" | "trash"
+  deletedAt: string | null
 }) {
+  const isTrash = view === "trash"
   return (
-    <div className="group flex items-center gap-4 px-4 py-3.5 hover:bg-white/80 transition">
+    <div
+      className={cn(
+        "group flex items-center gap-3 px-4 py-3.5 transition",
+        isTrash ? "opacity-80 hover:bg-rose-50/40" : "hover:bg-white/80",
+      )}
+    >
+      {!isTrash && (
+        <RowVideoButton
+          submissionId={id}
+          supplementalUrl={supplementalVideoUrl}
+          hasAutoDetectedVideo={hasAutoDetectedVideo}
+        />
+      )}
       <div className="flex-1 min-w-0">
         <Link
           href={detailHref}
-          className="font-semibold text-slate-900 hover:text-blue-900 block truncate"
+          className={cn(
+            "font-semibold block truncate",
+            isTrash
+              ? "text-slate-600 line-through hover:text-slate-900"
+              : "text-slate-900 hover:text-blue-900",
+          )}
         >
           {name}
         </Link>
@@ -500,12 +589,20 @@ function SubmissionRow({
         </div>
       </div>
 
-      <div className="hidden sm:flex items-center gap-3 shrink-0">
-        <TeamPips counts={counts} />
-      </div>
+      {!isTrash && (
+        <div className="hidden sm:flex items-center gap-3 shrink-0">
+          <TeamPips counts={counts} />
+        </div>
+      )}
 
       <div className="w-20 shrink-0 text-right">
-        {myVerdict ? (
+        {isTrash ? (
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            {deletedAt
+              ? `Trashed ${new Date(deletedAt).toLocaleDateString()}`
+              : ""}
+          </span>
+        ) : myVerdict ? (
           <span
             className={cn(
               "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border",
@@ -524,9 +621,13 @@ function SubmissionRow({
         )}
       </div>
 
-      <div className="hidden md:block w-24 shrink-0 text-right text-xs text-slate-500 tabular-nums">
-        {submittedAt ? new Date(submittedAt).toLocaleDateString() : "—"}
-      </div>
+      {!isTrash && (
+        <div className="hidden md:block w-24 shrink-0 text-right text-xs text-slate-500 tabular-nums">
+          {submittedAt ? new Date(submittedAt).toLocaleDateString() : "—"}
+        </div>
+      )}
+
+      <RowTrashButton submissionId={id} mode={view} />
     </div>
   )
 }

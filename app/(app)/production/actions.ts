@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
+import type { TablesUpdate } from "@/lib/database.types"
 
 type Result<T = unknown> = { ok: true; data: T } | { ok: false; error: string }
 
@@ -293,6 +294,8 @@ type BlockInput = {
   title: string | null
   location: string | null
   notes: string | null
+  theme?: string | null
+  host?: string | null
 }
 
 function validateBlock(b: BlockInput): string | null {
@@ -320,12 +323,15 @@ export async function createBlock(input: BlockInput): Promise<Result<{ id: strin
       title: input.title?.trim() || null,
       location: input.location?.trim() || null,
       notes: input.notes?.trim() || null,
+      theme: input.theme?.trim() || null,
+      host: input.host?.trim() || null,
     })
     .select("id")
     .single()
   if (error || !data) return { ok: false, error: error?.message ?? "Insert failed." }
 
   revalidatePath("/production")
+  revalidatePath("/production/programming")
   return { ok: true, data: { id: data.id } }
 }
 
@@ -335,20 +341,23 @@ export async function updateBlock(id: string, input: Omit<BlockInput, "draft_id"
   const err = validateBlock({ ...input, draft_id: "x" })
   if (err) return { ok: false, error: err }
 
-  const { error } = await supabase
-    .from("show_blocks")
-    .update({
-      day: input.day,
-      start_time: input.start_time,
-      end_time: input.end_time,
-      title: input.title?.trim() || null,
-      location: input.location?.trim() || null,
-      notes: input.notes?.trim() || null,
-    })
-    .eq("id", id)
+  const update: TablesUpdate<"show_blocks"> = {
+    day: input.day,
+    start_time: input.start_time,
+    end_time: input.end_time,
+    title: input.title?.trim() || null,
+    location: input.location?.trim() || null,
+    notes: input.notes?.trim() || null,
+  }
+  if (input.theme !== undefined) update.theme = input.theme?.trim() || null
+  if (input.host !== undefined) update.host = input.host?.trim() || null
+
+  const { error } = await supabase.from("show_blocks").update(update).eq("id", id)
   if (error) return { ok: false, error: error.message }
 
   revalidatePath("/production")
+  revalidatePath("/production/programming")
+  revalidatePath(`/production/programming/${id}`)
   return { ok: true, data: null }
 }
 
@@ -360,6 +369,7 @@ export async function deleteBlock(id: string): Promise<Result> {
   if (error) return { ok: false, error: error.message }
 
   revalidatePath("/production")
+  revalidatePath("/production/programming")
   return { ok: true, data: null }
 }
 
@@ -374,7 +384,7 @@ export async function setBlockSubmissions(
 
   const { data: existing, error: readErr } = await supabase
     .from("show_block_submissions")
-    .select("submission_id")
+    .select("submission_id, position")
     .eq("block_id", blockId)
   if (readErr) return { ok: false, error: readErr.message }
 
@@ -382,6 +392,10 @@ export async function setBlockSubmissions(
   const want = new Set(ids)
   const toAdd = ids.filter((id) => !have.has(id))
   const toRemove = Array.from(have).filter((id) => !want.has(id))
+  const maxPosition = (existing ?? []).reduce(
+    (acc, r) => (r.position != null && r.position > acc ? r.position : acc),
+    -1,
+  )
 
   if (toRemove.length > 0) {
     const { error } = await supabase
@@ -392,11 +406,143 @@ export async function setBlockSubmissions(
     if (error) return { ok: false, error: error.message }
   }
   if (toAdd.length > 0) {
-    const rows = toAdd.map((submission_id) => ({ block_id: blockId, submission_id }))
+    const rows = toAdd.map((submission_id, i) => ({
+      block_id: blockId,
+      submission_id,
+      position: maxPosition + 1 + i,
+    }))
     const { error } = await supabase.from("show_block_submissions").insert(rows)
     if (error) return { ok: false, error: error.message }
   }
 
   revalidatePath("/production")
+  revalidatePath("/production/programming")
+  revalidatePath(`/production/programming/${blockId}`)
   return { ok: true, data: null }
 }
+
+// --- Programming deep-dive actions ---
+
+export async function updateBlockProgramming(
+  blockId: string,
+  patch: { title?: string | null; theme?: string | null; host?: string | null },
+): Promise<Result> {
+  const { supabase, admin } = await requireAdmin()
+  if (!admin) return { ok: false, error: "Admin only." }
+
+  const update: TablesUpdate<"show_blocks"> = {}
+  if (patch.title !== undefined) update.title = patch.title?.trim() || null
+  if (patch.theme !== undefined) update.theme = patch.theme?.trim() || null
+  if (patch.host !== undefined) update.host = patch.host?.trim() || null
+  if (Object.keys(update).length === 0) return { ok: true, data: null }
+
+  const { error } = await supabase.from("show_blocks").update(update).eq("id", blockId)
+  if (error) return { ok: false, error: error.message }
+
+  revalidatePath("/production")
+  revalidatePath("/production/programming")
+  revalidatePath(`/production/programming/${blockId}`)
+  return { ok: true, data: null }
+}
+
+export async function addActToBlock(
+  blockId: string,
+  submissionId: string,
+): Promise<Result> {
+  const { supabase, admin } = await requireAdmin()
+  if (!admin) return { ok: false, error: "Admin only." }
+
+  const { data: existing, error: readErr } = await supabase
+    .from("show_block_submissions")
+    .select("submission_id, position")
+    .eq("block_id", blockId)
+  if (readErr) return { ok: false, error: readErr.message }
+  if ((existing ?? []).some((r) => r.submission_id === submissionId)) {
+    return { ok: true, data: null }
+  }
+  const maxPosition = (existing ?? []).reduce(
+    (acc, r) => (r.position != null && r.position > acc ? r.position : acc),
+    -1,
+  )
+
+  const { error } = await supabase.from("show_block_submissions").insert({
+    block_id: blockId,
+    submission_id: submissionId,
+    position: maxPosition + 1,
+  })
+  if (error) return { ok: false, error: error.message }
+
+  revalidatePath("/production")
+  revalidatePath("/production/programming")
+  revalidatePath(`/production/programming/${blockId}`)
+  return { ok: true, data: null }
+}
+
+export async function removeActFromBlock(
+  blockId: string,
+  submissionId: string,
+): Promise<Result> {
+  const { supabase, admin } = await requireAdmin()
+  if (!admin) return { ok: false, error: "Admin only." }
+
+  const { error } = await supabase
+    .from("show_block_submissions")
+    .delete()
+    .eq("block_id", blockId)
+    .eq("submission_id", submissionId)
+  if (error) return { ok: false, error: error.message }
+
+  revalidatePath("/production")
+  revalidatePath("/production/programming")
+  revalidatePath(`/production/programming/${blockId}`)
+  return { ok: true, data: null }
+}
+
+export async function setActDuration(
+  blockId: string,
+  submissionId: string,
+  durationMinutes: number | null,
+): Promise<Result> {
+  const { supabase, admin } = await requireAdmin()
+  if (!admin) return { ok: false, error: "Admin only." }
+
+  const value =
+    durationMinutes == null || Number.isNaN(durationMinutes)
+      ? null
+      : Math.max(0, Math.min(600, Math.round(durationMinutes)))
+
+  const { error } = await supabase
+    .from("show_block_submissions")
+    .update({ duration_minutes: value })
+    .eq("block_id", blockId)
+    .eq("submission_id", submissionId)
+  if (error) return { ok: false, error: error.message }
+
+  revalidatePath("/production")
+  revalidatePath("/production/programming")
+  revalidatePath(`/production/programming/${blockId}`)
+  return { ok: true, data: null }
+}
+
+export async function reorderBlockActs(
+  blockId: string,
+  orderedSubmissionIds: string[],
+): Promise<Result> {
+  const { supabase, admin } = await requireAdmin()
+  if (!admin) return { ok: false, error: "Admin only." }
+
+  for (let i = 0; i < orderedSubmissionIds.length; i++) {
+    const { error } = await supabase
+      .from("show_block_submissions")
+      .update({ position: i })
+      .eq("block_id", blockId)
+      .eq("submission_id", orderedSubmissionIds[i])
+    if (error) return { ok: false, error: error.message }
+  }
+
+  revalidatePath("/production")
+  revalidatePath("/production/programming")
+  revalidatePath(`/production/programming/${blockId}`)
+  return { ok: true, data: null }
+}
+

@@ -171,6 +171,47 @@ export type Database = {
           },
         ]
       }
+      gmail_integration: {
+        Row: {
+          id: boolean
+          account_email: string | null
+          refresh_token: string | null
+          scopes: string | null
+          connected_at: string | null
+          connected_by: string | null
+          last_used_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: boolean
+          account_email?: string | null
+          refresh_token?: string | null
+          scopes?: string | null
+          connected_at?: string | null
+          connected_by?: string | null
+          last_used_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          id?: boolean
+          account_email?: string | null
+          refresh_token?: string | null
+          scopes?: string | null
+          connected_at?: string | null
+          connected_by?: string | null
+          last_used_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gmail_integration_connected_by_fkey"
+            columns: ["connected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       festival_settings: {
         Row: {
           id: boolean
@@ -519,16 +560,22 @@ export type Database = {
         Row: {
           block_id: string
           created_at: string
+          duration_minutes: number | null
+          position: number | null
           submission_id: string
         }
         Insert: {
           block_id: string
           created_at?: string
+          duration_minutes?: number | null
+          position?: number | null
           submission_id: string
         }
         Update: {
           block_id?: string
           created_at?: string
+          duration_minutes?: number | null
+          position?: number | null
           submission_id?: string
         }
         Relationships: [
@@ -561,10 +608,12 @@ export type Database = {
           day: string
           draft_id: string
           end_time: string
+          host: string | null
           id: string
           location: string | null
           notes: string | null
           start_time: string
+          theme: string | null
           title: string | null
           updated_at: string
         }
@@ -573,10 +622,12 @@ export type Database = {
           day: string
           draft_id: string
           end_time: string
+          host?: string | null
           id?: string
           location?: string | null
           notes?: string | null
           start_time: string
+          theme?: string | null
           title?: string | null
           updated_at?: string
         }
@@ -585,10 +636,12 @@ export type Database = {
           day?: string
           draft_id?: string
           end_time?: string
+          host?: string | null
           id?: string
           location?: string | null
           notes?: string | null
           start_time?: string
+          theme?: string | null
           title?: string | null
           updated_at?: string
         }
@@ -606,36 +659,42 @@ export type Database = {
         Row: {
           created_at: string
           data: Json
+          deleted_at: string | null
           email: string | null
           external_id: string
           id: string
           name: string | null
           source_import_id: string | null
           submitted_at: string | null
+          supplemental_video_url: string | null
           type: string
           updated_at: string
         }
         Insert: {
           created_at?: string
           data?: Json
+          deleted_at?: string | null
           email?: string | null
           external_id: string
           id?: string
           name?: string | null
           source_import_id?: string | null
           submitted_at?: string | null
+          supplemental_video_url?: string | null
           type: string
           updated_at?: string
         }
         Update: {
           created_at?: string
           data?: Json
+          deleted_at?: string | null
           email?: string | null
           external_id?: string
           id?: string
           name?: string | null
           source_import_id?: string | null
           submitted_at?: string | null
+          supplemental_video_url?: string | null
           type?: string
           updated_at?: string
         }

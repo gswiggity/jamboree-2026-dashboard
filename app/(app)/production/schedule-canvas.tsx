@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { MessageSquare } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { BlockDialog, type BlockDialogInput } from "./block-dialog"
 import { BlockDetailsDialog } from "./block-details"
@@ -52,15 +53,10 @@ export function submissionMeta(s: EligibleSubmission): {
   return { city: null, kind: s.type, contact: null }
 }
 
-export const FESTIVAL_DAYS = [
-  { date: "2026-07-09", label: "Thu", long: "Thursday" },
-  { date: "2026-07-10", label: "Fri", long: "Friday" },
-  { date: "2026-07-11", label: "Sat", long: "Saturday" },
-  { date: "2026-07-12", label: "Sun", long: "Sunday" },
-]
+import { FESTIVAL_DAYS } from "./festival"
 
 const SLOT_MIN = 15
-const SLOT_PX = 16
+const SLOT_PX = 20
 
 export function timeToMinutes(t: string): number {
   const [hh, mm] = t.split(":").map(Number)
@@ -313,6 +309,7 @@ export function ScheduleCanvas({
                   const tagNames = tagIds
                     .map((id) => eligibleSubmissions.find((s) => s.id === id)?.name)
                     .filter((n): n is string => !!n)
+                  const commentCount = commentsByBlock[b.id]?.length ?? 0
                   const color =
                     b.location && venueColors[b.location]
                       ? venueColors[b.location]
@@ -347,14 +344,30 @@ export function ScheduleCanvas({
                       <div className="font-medium truncate leading-tight">
                         {b.title || "Untitled"}
                       </div>
-                      <div className="text-[10px] text-muted-foreground leading-tight truncate">
-                        {minutesToDisplay(timeToMinutes(b.start_time))}–
-                        {minutesToDisplay(timeToMinutes(b.end_time))}
-                        {b.location ? ` · ${b.location}` : ""}
+                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground leading-tight">
+                        <span className="truncate min-w-0 flex-1">
+                          {minutesToDisplay(timeToMinutes(b.start_time))}–
+                          {minutesToDisplay(timeToMinutes(b.end_time))}
+                          {b.location ? ` · ${b.location}` : ""}
+                        </span>
+                        {commentCount > 0 && (
+                          <span className="shrink-0 inline-flex items-center gap-0.5 tabular-nums">
+                            <MessageSquare className="h-2.5 w-2.5" aria-hidden />
+                            {commentCount}
+                          </span>
+                        )}
                       </div>
-                      {tagNames.length > 0 && (
+                      {tagNames.length === 1 && (
                         <div className="text-[10px] leading-tight truncate mt-0.5">
-                          {tagNames.join(", ")}
+                          {tagNames[0]}
+                        </div>
+                      )}
+                      {tagNames.length >= 2 && (
+                        <div className="text-[10px] leading-tight truncate mt-0.5">
+                          {tagNames[0]}{" "}
+                          <span className="text-muted-foreground">
+                            +{tagNames.length - 1}
+                          </span>
                         </div>
                       )}
                     </button>

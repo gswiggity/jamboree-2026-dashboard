@@ -26,8 +26,8 @@ import { Combobox } from "@base-ui/react/combobox"
 import { XIcon } from "lucide-react"
 import { createBlock, deleteBlock, setBlockSubmissions, updateBlock } from "./actions"
 import { BlockCommentsPanel, type BlockComment } from "./block-comments"
+import { FESTIVAL_DAYS } from "./festival"
 import {
-  FESTIVAL_DAYS,
   submissionMeta,
   timeToMinutes,
   type Block,
