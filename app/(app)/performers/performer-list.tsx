@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import { ChevronRight, Mail, Search, Users } from "lucide-react"
+import { ChevronRight, Mail, Search, Sparkles, Users } from "lucide-react"
 import {
   applyPerformerFilter,
   filterPerformersByQuery,
@@ -12,6 +12,7 @@ import {
   type PerformerSortKey,
 } from "@/lib/performers"
 import { cn } from "@/lib/utils"
+import { PerformerScenarios } from "./performer-scenarios"
 
 export type JudgmentRow = {
   submission_id: string
@@ -61,6 +62,7 @@ export function PerformerList({
   myJudgments: JudgmentRow[]
   verdictCounts: VerdictCountRow[]
 }) {
+  const [view, setView] = useState<"directory" | "scenarios">("directory")
   const [q, setQ] = useState("")
   const [filter, setFilter] = useState<PerformerFilterKey>("all")
   const [sort, setSort] = useState<PerformerSortKey>("submissions")
@@ -153,6 +155,47 @@ export function PerformerList({
           </div>
         </div>
       </div>
+
+      {/* VIEW TOGGLE */}
+      <div className="flex items-center gap-1 rounded-full border border-white/70 bg-white/65 backdrop-blur-xl p-1 w-fit shadow-[0_4px_16px_-12px_rgba(30,58,138,0.18)]">
+        <button
+          type="button"
+          onClick={() => setView("directory")}
+          className={cn(
+            "inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium transition",
+            view === "directory"
+              ? "bg-blue-950 text-white"
+              : "text-slate-700 hover:text-slate-950 hover:bg-slate-100/70",
+          )}
+        >
+          <Users className="h-3.5 w-3.5" />
+          Directory
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("scenarios")}
+          className={cn(
+            "inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium transition",
+            view === "scenarios"
+              ? "bg-blue-950 text-white"
+              : "text-slate-700 hover:text-slate-950 hover:bg-slate-100/70",
+          )}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          Scenarios
+        </button>
+      </div>
+
+      {view === "scenarios" && (
+        <PerformerScenarios
+          performers={performers}
+          myJudgments={myJudgments}
+          verdictCounts={verdictCounts}
+        />
+      )}
+
+      {view === "directory" && (
+        <>
 
       {/* CONTROL PANEL */}
       <div className="rounded-2xl border border-white/70 bg-white/65 backdrop-blur-xl shadow-[0_8px_28px_-18px_rgba(30,58,138,0.18)] overflow-hidden">
@@ -264,6 +307,8 @@ export function PerformerList({
               />
             ))}
           </div>
+        </>
+      )}
         </>
       )}
     </div>
