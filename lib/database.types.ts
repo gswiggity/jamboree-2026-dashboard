@@ -171,47 +171,6 @@ export type Database = {
           },
         ]
       }
-      gmail_integration: {
-        Row: {
-          id: boolean
-          account_email: string | null
-          refresh_token: string | null
-          scopes: string | null
-          connected_at: string | null
-          connected_by: string | null
-          last_used_at: string | null
-          updated_at: string
-        }
-        Insert: {
-          id?: boolean
-          account_email?: string | null
-          refresh_token?: string | null
-          scopes?: string | null
-          connected_at?: string | null
-          connected_by?: string | null
-          last_used_at?: string | null
-          updated_at?: string
-        }
-        Update: {
-          id?: boolean
-          account_email?: string | null
-          refresh_token?: string | null
-          scopes?: string | null
-          connected_at?: string | null
-          connected_by?: string | null
-          last_used_at?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "gmail_integration_connected_by_fkey"
-            columns: ["connected_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       festival_settings: {
         Row: {
           id: boolean
@@ -242,6 +201,47 @@ export type Database = {
           {
             foreignKeyName: "festival_settings_updated_by_fkey"
             columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gmail_integration: {
+        Row: {
+          account_email: string | null
+          connected_at: string | null
+          connected_by: string | null
+          id: boolean
+          last_used_at: string | null
+          refresh_token: string | null
+          scopes: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_email?: string | null
+          connected_at?: string | null
+          connected_by?: string | null
+          id?: boolean
+          last_used_at?: string | null
+          refresh_token?: string | null
+          scopes?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_email?: string | null
+          connected_at?: string | null
+          connected_by?: string | null
+          id?: boolean
+          last_used_at?: string | null
+          refresh_token?: string | null
+          scopes?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gmail_integration_connected_by_fkey"
+            columns: ["connected_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -340,6 +340,88 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      lineup_cards: {
+        Row: {
+          column_id: string | null
+          created_at: string
+          id: string
+          position: number
+          set_length_minutes: number | null
+          submission_id: string
+          tags: string[]
+          updated_at: string
+        }
+        Insert: {
+          column_id?: string | null
+          created_at?: string
+          id?: string
+          position?: number
+          set_length_minutes?: number | null
+          submission_id: string
+          tags?: string[]
+          updated_at?: string
+        }
+        Update: {
+          column_id?: string | null
+          created_at?: string
+          id?: string
+          position?: number
+          set_length_minutes?: number | null
+          submission_id?: string
+          tags?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lineup_cards_column_id_fkey"
+            columns: ["column_id"]
+            isOneToOne: false
+            referencedRelation: "lineup_columns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lineup_cards_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: true
+            referencedRelation: "submission_verdict_counts"
+            referencedColumns: ["submission_id"]
+          },
+          {
+            foreignKeyName: "lineup_cards_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: true
+            referencedRelation: "submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lineup_columns: {
+        Row: {
+          color: string | null
+          created_at: string
+          id: string
+          position: number
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          position?: number
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          position?: number
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       marketing_campaigns: {
         Row: {
@@ -1022,13 +1104,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "volunteer_shifts_role_key_fkey"
-            columns: ["role_key"]
-            isOneToOne: false
-            referencedRelation: "volunteer_roles"
-            referencedColumns: ["key"]
           },
         ]
       }

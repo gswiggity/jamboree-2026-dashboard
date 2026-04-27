@@ -1,13 +1,29 @@
 import Link from "next/link"
-import { ArrowRight, CheckCircle2, CircleDot, Sparkles, Users2 } from "lucide-react"
+import { redirect } from "next/navigation"
+import {
+  ArrowRight,
+  CheckCircle2,
+  CircleDot,
+  LayoutGrid,
+  List,
+  Sparkles,
+  Users2,
+} from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
+import { canonicalActType } from "@/lib/act-types"
 import { SUBMISSION_TYPES, TYPE_LABELS, type SubmissionType } from "@/lib/csv"
 import { cn } from "@/lib/utils"
+import { LineupBoard, type BoardCard, type BoardColumn } from "./board"
 
-type Search = { type?: string }
+type Search = { type?: string; view?: string }
+type ViewMode = "list" | "board"
 
 function isType(v: string | undefined): v is SubmissionType {
   return v === "act" || v === "volunteer" || v === "workshop"
+}
+
+function isView(v: string | undefined): v is ViewMode {
+  return v === "list" || v === "board"
 }
 
 type Counts = {
@@ -61,7 +77,129 @@ export default async function LineupPage({
 }) {
   const sp = await searchParams
   const type: SubmissionType = isType(sp.type) ? sp.type : "act"
+  // The board only makes sense for acts (set length / tags are act-shaped),
+  // so silently fall back to list view for vol/workshop.
+  const requestedView: ViewMode = isView(sp.view) ? sp.view : "list"
+  const view: ViewMode = type === "act" && requestedView === "board" ? "board" : "list"
 
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) redirect("/login")
+
+  return (
+    <div className="space-y-8">
+      <Header type={type} view={view} />
+      {view === "board" ? (
+        <BoardView />
+      ) : (
+        <ListView type={type} />
+      )}
+    </div>
+  )
+}
+
+/* -------------------------------------------------- header */
+
+function Header({ type, view }: { type: SubmissionType; view: ViewMode }) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <div className="text-[11px] uppercase tracking-[0.3em] font-semibold text-blue-900 mb-2">
+          The Lineup
+        </div>
+        <h1 className="font-[family-name:var(--font-serif)] text-5xl text-blue-950 leading-none">
+          {view === "board" ? (
+            <>
+              Sticky-note <span className="italic text-[#2340d9]">board</span>
+            </>
+          ) : (
+            <>
+              Approved <span className="italic text-[#2340d9]">talent</span>
+            </>
+          )}
+        </h1>
+        <p className="text-sm text-slate-700 mt-3 max-w-xl">
+          {view === "board"
+            ? "Drag approved acts onto your own columns to sketch the festival. Edit set lengths and add tags as you plan."
+            : "Acts the team has said yes to, grouped by how solid the consensus is. Keep judging to push bubbles into the locked column."}
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 text-xs">
+          {SUBMISSION_TYPES.map((t) => (
+            <Link
+              key={t}
+              href={
+                t === "act"
+                  ? `/lineup?type=${t}${view === "board" ? "&view=board" : ""}`
+                  : `/lineup?type=${t}`
+              }
+              className={cn(
+                "px-3 py-1.5 rounded-full font-medium transition",
+                t === type
+                  ? "bg-blue-950 text-white"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/60",
+              )}
+            >
+              {TYPE_LABELS[t]}
+            </Link>
+          ))}
+        </div>
+        {type === "act" && (
+          <div
+            role="tablist"
+            aria-label="View mode"
+            className="inline-flex items-center gap-0.5 rounded-full border border-slate-200/80 bg-white/70 backdrop-blur p-0.5 text-xs font-medium"
+          >
+            <ViewToggle href={`/lineup?type=act`} active={view === "list"}>
+              <List className="h-3.5 w-3.5" />
+              List
+            </ViewToggle>
+            <ViewToggle
+              href={`/lineup?type=act&view=board`}
+              active={view === "board"}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              Board
+            </ViewToggle>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ViewToggle({
+  href,
+  active,
+  children,
+}: {
+  href: string
+  active: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <Link
+      href={href}
+      role="tab"
+      aria-selected={active}
+      className={cn(
+        "inline-flex items-center gap-1.5 px-3 py-1 rounded-full transition",
+        active
+          ? "bg-blue-950 text-white"
+          : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/60",
+      )}
+    >
+      {children}
+    </Link>
+  )
+}
+
+/* -------------------------------------------------- list view */
+
+async function ListView({ type }: { type: SubmissionType }) {
   const supabase = await createClient()
 
   const { data: rows } = await supabase
@@ -88,22 +226,27 @@ export default async function LineupPage({
         .select("id, name, email, submitted_at, data")
         .in("id", ids)
         .is("deleted_at", null)
-    : { data: [] as Array<{ id: string; name: string | null; email: string | null; submitted_at: string | null; data: unknown }> }
+    : {
+        data: [] as Array<{
+          id: string
+          name: string | null
+          email: string | null
+          submitted_at: string | null
+          data: unknown
+        }>,
+      }
 
   const subMap = new Map((submissions ?? []).map((s) => [s.id, s]))
 
-  const buckets: Record<Tier, Array<{
+  type Item = {
     id: string
     name: string
     email: string | null
     submittedAt: string | null
     counts: Counts
     meta: { actType?: string; location?: string }
-  }>> = {
-    locked: [],
-    likely: [],
-    bubble: [],
   }
+  const buckets: Record<Tier, Item[]> = { locked: [], likely: [], bubble: [] }
 
   for (const r of approvedRows) {
     const counts: Counts = {
@@ -135,7 +278,6 @@ export default async function LineupPage({
     })
   }
 
-  // Sort each tier: more yes first, then fewer no, then newest.
   for (const tier of ["locked", "likely", "bubble"] as const) {
     buckets[tier].sort((a, b) => {
       if (a.counts.yes_count !== b.counts.yes_count) {
@@ -150,57 +292,15 @@ export default async function LineupPage({
     })
   }
 
-  const totalApproved = buckets.locked.length + buckets.likely.length + buckets.bubble.length
+  const totalApproved =
+    buckets.locked.length + buckets.likely.length + buckets.bubble.length
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.3em] font-semibold text-blue-900 mb-2">
-            The Lineup
-          </div>
-          <h1 className="font-[family-name:var(--font-serif)] text-5xl text-blue-950 leading-none">
-            Approved <span className="italic text-[#2340d9]">talent</span>
-          </h1>
-          <p className="text-sm text-slate-700 mt-3 max-w-xl">
-            Acts the team has said yes to, grouped by how solid the consensus is.
-            Keep judging to push bubbles into the locked column.
-          </p>
-        </div>
-        <div className="flex items-center gap-1 text-xs">
-          {SUBMISSION_TYPES.map((t) => (
-            <Link
-              key={t}
-              href={`/lineup?type=${t}`}
-              className={cn(
-                "px-3 py-1.5 rounded-full font-medium transition",
-                t === type
-                  ? "bg-blue-950 text-white"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/60",
-              )}
-            >
-              {TYPE_LABELS[t]}
-            </Link>
-          ))}
-        </div>
-      </div>
-
+    <>
       <div className="grid grid-cols-3 gap-3">
-        <SummaryCard
-          tier="locked"
-          count={buckets.locked.length}
-          total={totalApproved}
-        />
-        <SummaryCard
-          tier="likely"
-          count={buckets.likely.length}
-          total={totalApproved}
-        />
-        <SummaryCard
-          tier="bubble"
-          count={buckets.bubble.length}
-          total={totalApproved}
-        />
+        <SummaryCard tier="locked" count={buckets.locked.length} total={totalApproved} />
+        <SummaryCard tier="likely" count={buckets.likely.length} total={totalApproved} />
+        <SummaryCard tier="bubble" count={buckets.bubble.length} total={totalApproved} />
       </div>
 
       {totalApproved === 0 ? (
@@ -237,7 +337,7 @@ export default async function LineupPage({
           })}
         </div>
       )}
-    </div>
+    </>
   )
 }
 
@@ -265,9 +365,7 @@ function SummaryCard({
           {count}
         </span>
         <span className="text-xs text-slate-600">{count === 1 ? "act" : "acts"}</span>
-        {total > 0 && (
-          <span className="text-xs text-slate-500 ml-auto">{pct}%</span>
-        )}
+        {total > 0 && <span className="text-xs text-slate-500 ml-auto">{pct}%</span>}
       </div>
     </div>
   )
@@ -372,3 +470,103 @@ function EmptyLineup({ type }: { type: SubmissionType }) {
   )
 }
 
+/* -------------------------------------------------- board view */
+
+async function BoardView() {
+  const supabase = await createClient()
+
+  // Approved acts (≥1 yes vote).
+  const { data: verdictRows } = await supabase
+    .from("submission_verdict_counts")
+    .select("submission_id, yes_count, no_count, maybe_count")
+    .eq("type", "act")
+
+  const approved = (verdictRows ?? []).filter(
+    (r) => (r.yes_count ?? 0) > 0 && r.submission_id,
+  )
+  const approvedIds = approved.map((r) => r.submission_id!)
+
+  const [{ data: submissions }, { data: columns }, { data: cards }] =
+    await Promise.all([
+      approvedIds.length > 0
+        ? supabase
+            .from("submissions")
+            .select("id, name, email, data")
+            .in("id", approvedIds)
+            .is("deleted_at", null)
+        : Promise.resolve({ data: [] as never[] }),
+      supabase
+        .from("lineup_columns")
+        .select("id, title, position, color")
+        .order("position", { ascending: true }),
+      supabase
+        .from("lineup_cards")
+        .select(
+          "id, submission_id, column_id, position, set_length_minutes, tags",
+        ),
+    ])
+
+  // Bootstrap missing cards. The unique constraint on submission_id keeps
+  // this idempotent across concurrent loads.
+  const cardBySubId = new Map(
+    (cards ?? []).map((c) => [c.submission_id, c]),
+  )
+  const missing = approvedIds.filter((id) => !cardBySubId.has(id))
+  if (missing.length > 0) {
+    const { data: inserted } = await supabase
+      .from("lineup_cards")
+      .insert(missing.map((id) => ({ submission_id: id })))
+      .select(
+        "id, submission_id, column_id, position, set_length_minutes, tags",
+      )
+    for (const c of inserted ?? []) cardBySubId.set(c.submission_id, c)
+  }
+
+  const subById = new Map(
+    (submissions ?? []).map((s) => [s.id, s] as const),
+  )
+  const verdictById = new Map(
+    approved.map((r) => [r.submission_id!, r] as const),
+  )
+
+  const boardColumns: BoardColumn[] = (columns ?? []).map((c) => ({
+    id: c.id,
+    title: c.title,
+    position: c.position,
+  }))
+
+  const boardCards: BoardCard[] = []
+  for (const id of approvedIds) {
+    const card = cardBySubId.get(id)
+    const sub = subById.get(id)
+    if (!card || !sub) continue
+    const data = (sub.data as Record<string, unknown>) ?? {}
+    const rawType =
+      typeof data["GroupAct Type"] === "string"
+        ? (data["GroupAct Type"] as string)
+        : null
+    const v = verdictById.get(id)
+    const counts = {
+      yes_count: v?.yes_count ?? 0,
+      no_count: v?.no_count ?? 0,
+      maybe_count: v?.maybe_count ?? 0,
+    }
+    boardCards.push({
+      id: card.id,
+      submissionId: id,
+      columnId: card.column_id,
+      position: card.position,
+      name: sub.name ?? "(no name)",
+      typeLabel: canonicalActType(rawType).label,
+      setLengthMinutes: card.set_length_minutes,
+      tags: card.tags ?? [],
+      tier: classify({
+        ...counts,
+        total_judgments: counts.yes_count + counts.no_count + counts.maybe_count,
+      }),
+      counts,
+    })
+  }
+
+  return <LineupBoard columns={boardColumns} cards={boardCards} />
+}
