@@ -37,9 +37,11 @@ type Act = {
   duration_minutes: number | null
 }
 
+type BlockKind = "show" | "workshop" | "event"
+
 type Props = {
   blockId: string
-  initial: { title: string; theme: string; host: string }
+  initial: { title: string; theme: string; host: string; kind: BlockKind }
   acts: Act[]
   candidates: ActSubmission[]
   judgmentsBySubmission: Record<string, ActJudgment[]>
@@ -48,6 +50,20 @@ type Props = {
 }
 
 type HeaderField = "title" | "theme" | "host"
+
+const KIND_OPTIONS: Array<{ key: BlockKind; label: string; hint: string }> = [
+  { key: "show", label: "Show", hint: "Multi-act lineup with timing." },
+  {
+    key: "workshop",
+    label: "Workshop",
+    hint: "One class with cost, capacity, and tickets.",
+  },
+  {
+    key: "event",
+    label: "Event",
+    hint: "Festival event powered by volunteers, no acts.",
+  },
+]
 
 export function BlockProgrammingShell({
   blockId,
@@ -62,8 +78,10 @@ export function BlockProgrammingShell({
   const [, startTransition] = useTransition()
 
   const [header, setHeader] = useState(initial)
+  const [kind, setKind] = useState<BlockKind>(initial.kind)
   const [savingField, setSavingField] = useState<HeaderField | null>(null)
   const [savedField, setSavedField] = useState<HeaderField | null>(null)
+  const [kindPending, setKindPending] = useState(false)
   const initialRef = useRef(initial)
   const debounceRefs = useRef<Record<HeaderField, ReturnType<typeof setTimeout> | null>>({
     title: null,
@@ -97,6 +115,33 @@ export function BlockProgrammingShell({
     debounceRefs.current[field] = setTimeout(() => {
       if ((initialRef.current[field] ?? "") !== value) saveHeaderField(field, value)
     }, 600)
+  }
+
+  function changeKind(next: BlockKind) {
+    if (next === kind) return
+    if (
+      (kind === "show" && acts.length > 1 && next === "workshop") ||
+      (next === "event" && acts.length > 0)
+    ) {
+      const ok = confirm(
+        next === "workshop"
+          ? `Switching to Workshop will keep only one of the ${acts.length} programmed entries.`
+          : `Switching to Event will remove all ${acts.length} programmed entries.`,
+      )
+      if (!ok) return
+    }
+    setKind(next)
+    setKindPending(true)
+    startTransition(async () => {
+      const r = await updateBlockProgramming(blockId, { kind: next })
+      setKindPending(false)
+      if (!r.ok) {
+        toast.error(r.error)
+        setKind(kind)
+        return
+      }
+      router.refresh()
+    })
   }
 
   // Shell is keyed on blockId at the page level so navigating to another block
@@ -182,105 +227,171 @@ export function BlockProgrammingShell({
           <CardHeader>
             <CardTitle>Block details</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
-            <FieldRow
-              label="Name"
-              field="title"
-              value={header.title}
-              placeholder="e.g. Friday Late Show"
-              savingField={savingField}
-              savedField={savedField}
-              onChange={onHeaderChange}
-            />
-            <FieldRow
-              label="Host"
-              field="host"
-              value={header.host}
-              placeholder="MC name"
-              savingField={savingField}
-              savedField={savedField}
-              onChange={onHeaderChange}
-            />
-            <div className="sm:col-span-2">
+          <CardContent className="space-y-4">
+            <div>
+              <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Kind
+              </Label>
+              <div className="mt-1 inline-flex rounded-full border bg-white/60 p-0.5">
+                {KIND_OPTIONS.map((opt) => {
+                  const active = kind === opt.key
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => changeKind(opt.key)}
+                      disabled={kindPending}
+                      className={cn(
+                        "px-3 py-1 rounded-full text-xs font-medium transition disabled:opacity-50",
+                        active
+                          ? "bg-blue-950 text-white"
+                          : "text-slate-700 hover:text-slate-950 hover:bg-slate-100/70",
+                      )}
+                      title={opt.hint}
+                    >
+                      {opt.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {KIND_OPTIONS.find((o) => o.key === kind)?.hint}
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
               <FieldRow
-                label="Theme"
-                field="theme"
-                value={header.theme}
-                placeholder="What ties the night together?"
+                label="Name"
+                field="title"
+                value={header.title}
+                placeholder={
+                  kind === "workshop"
+                    ? "e.g. Sunday Stand-up Bootcamp"
+                    : kind === "event"
+                      ? "e.g. Opening night reception"
+                      : "e.g. Friday Late Show"
+                }
                 savingField={savingField}
                 savedField={savedField}
                 onChange={onHeaderChange}
               />
+              <FieldRow
+                label={kind === "workshop" ? "Instructor" : "Host"}
+                field="host"
+                value={header.host}
+                placeholder={
+                  kind === "workshop" ? "Lead teacher" : "MC name"
+                }
+                savingField={savingField}
+                savedField={savedField}
+                onChange={onHeaderChange}
+              />
+              <div className="sm:col-span-2">
+                <FieldRow
+                  label={kind === "workshop" ? "Description" : "Theme"}
+                  field="theme"
+                  value={header.theme}
+                  placeholder={
+                    kind === "workshop"
+                      ? "What students will learn"
+                      : kind === "event"
+                        ? "What this event is about"
+                        : "What ties the night together?"
+                  }
+                  savingField={savingField}
+                  savedField={savedField}
+                  onChange={onHeaderChange}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Lineup</CardTitle>
-            <CardAction>
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {acts.length} {acts.length === 1 ? "act" : "acts"}
-                {totalMinutes > 0 ? ` · ${totalMinutes} min programmed` : ""}
-              </span>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <ActCarousel
-              candidates={candidates}
-              excludedIds={
-                new Set(acts.map((a) => a.submission.id))
-              }
-              judgmentsBySubmission={judgmentsBySubmission}
-              onAdd={handleAdd}
-            />
-            {acts.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">
-                Add acts above to start building this block.
-              </p>
-            ) : (
-              <ol className="space-y-2">
-                {acts.map((a, i) => (
-                  <li
-                    key={a.submission.id}
-                    draggable
-                    onDragStart={() => setDragIdx(i)}
-                    onDragOver={(e) => {
-                      e.preventDefault()
-                      setDragOverIdx(i)
-                    }}
-                    onDragLeave={() => setDragOverIdx((cur) => (cur === i ? null : cur))}
-                    onDrop={(e) => {
-                      e.preventDefault()
-                      if (dragIdx != null) reorder(dragIdx, i)
-                      setDragIdx(null)
-                      setDragOverIdx(null)
-                    }}
-                    onDragEnd={() => {
-                      setDragIdx(null)
-                      setDragOverIdx(null)
-                    }}
-                    className={cn(
-                      "rounded-lg border bg-card transition",
-                      dragIdx === i && "opacity-50",
-                      dragOverIdx === i && dragIdx !== i && "border-blue-400",
-                    )}
-                  >
-                    <ActRow
-                      index={i}
-                      act={a}
-                      onDuration={(v) => {
-                        setDurationLocal(a.submission.id, v)
-                        persistDuration(a.submission.id, v)
+        {kind === "show" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Lineup</CardTitle>
+              <CardAction>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {acts.length} {acts.length === 1 ? "act" : "acts"}
+                  {totalMinutes > 0 ? ` · ${totalMinutes} min programmed` : ""}
+                </span>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ActCarousel
+                candidates={candidates}
+                excludedIds={
+                  new Set(acts.map((a) => a.submission.id))
+                }
+                judgmentsBySubmission={judgmentsBySubmission}
+                onAdd={handleAdd}
+              />
+              {acts.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  Add acts above to start building this block.
+                </p>
+              ) : (
+                <ol className="space-y-2">
+                  {acts.map((a, i) => (
+                    <li
+                      key={a.submission.id}
+                      draggable
+                      onDragStart={() => setDragIdx(i)}
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        setDragOverIdx(i)
                       }}
-                      onRemove={() => handleRemove(a.submission.id)}
-                    />
-                  </li>
-                ))}
-              </ol>
-            )}
-          </CardContent>
-        </Card>
+                      onDragLeave={() => setDragOverIdx((cur) => (cur === i ? null : cur))}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        if (dragIdx != null) reorder(dragIdx, i)
+                        setDragIdx(null)
+                        setDragOverIdx(null)
+                      }}
+                      onDragEnd={() => {
+                        setDragIdx(null)
+                        setDragOverIdx(null)
+                      }}
+                      className={cn(
+                        "rounded-lg border bg-card transition",
+                        dragIdx === i && "opacity-50",
+                        dragOverIdx === i && dragIdx !== i && "border-blue-400",
+                      )}
+                    >
+                      <ActRow
+                        index={i}
+                        act={a}
+                        onDuration={(v) => {
+                          setDurationLocal(a.submission.id, v)
+                          persistDuration(a.submission.id, v)
+                        }}
+                        onRemove={() => handleRemove(a.submission.id)}
+                      />
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {kind === "workshop" && (
+          <WorkshopBlock
+            selected={acts[0] ?? null}
+            candidates={candidates}
+            onAdd={(s) => {
+              // Replace any existing selection.
+              if (acts[0]) handleRemove(acts[0].submission.id)
+              handleAdd(s)
+            }}
+            onRemove={() =>
+              acts[0] && handleRemove(acts[0].submission.id)
+            }
+          />
+        )}
+
+        {kind === "event" && <EventBlock />}
 
         <Card>
           <CardHeader>
@@ -304,12 +415,51 @@ export function BlockProgrammingShell({
       </div>
 
       <div className="space-y-6 lg:sticky lg:top-24 lg:self-start">
-        <BillingPreview
-          blockTitle={header.title}
-          theme={header.theme}
-          host={header.host}
-          acts={acts}
-        />
+        {kind === "show" && (
+          <BillingPreview
+            blockTitle={header.title}
+            theme={header.theme}
+            host={header.host}
+            acts={acts}
+          />
+        )}
+        {kind === "workshop" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Class details</CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs text-muted-foreground space-y-2">
+              <p>
+                Pick a workshop submission to see its full description, cost,
+                and ticket link inline.
+              </p>
+              <p>
+                Submission data lives in <code>submissions.data</code> from
+                the imported CSV — anything you collected on the form is
+                surfaced.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+        {kind === "event" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Volunteers</CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs text-muted-foreground space-y-2">
+              <p>
+                Events run on volunteers — assign them on the Volunteers page
+                and link the shift to this block&apos;s time.
+              </p>
+              <a
+                href="/volunteers"
+                className="text-primary hover:underline underline-offset-4"
+              >
+                Open Volunteers →
+              </a>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )
@@ -449,4 +599,237 @@ function pickActMeta(s: ActSubmission): string | null {
   const city = pickStr(s.data, "Location")
   const kind = pickStr(s.data, "GroupAct Type")
   return [city, kind].filter(Boolean).join(" · ") || null
+}
+
+// Highlighted fields shown at the top of the workshop selection. Order is the
+// reading order; first non-empty match for each label wins. We deliberately
+// stay forgiving on the source key names since Squarespace forms vary.
+const WORKSHOP_HIGHLIGHTS: Array<{
+  label: string
+  candidates: RegExp[]
+}> = [
+  {
+    label: "Cost",
+    candidates: [/^cost$/i, /^price$/i, /tuition/i, /fee/i],
+  },
+  {
+    label: "Max attendees",
+    candidates: [
+      /max.*(attendee|capacity|student|participant)/i,
+      /^capacity$/i,
+      /class.*size/i,
+      /attendee.*max/i,
+    ],
+  },
+  {
+    label: "Duration",
+    candidates: [/^duration$/i, /^length$/i, /run.?time/i],
+  },
+  {
+    label: "Tickets",
+    candidates: [/ticket/i, /eventbrite/i, /signup/i, /registration/i],
+  },
+]
+
+function pickHighlight(
+  data: Record<string, unknown> | null,
+  candidates: RegExp[],
+): { value: string; key: string } | null {
+  if (!data) return null
+  for (const re of candidates) {
+    for (const [k, v] of Object.entries(data)) {
+      if (!re.test(k)) continue
+      if (v == null) continue
+      const s = String(v).trim()
+      if (s.length > 0) return { value: s, key: k }
+    }
+  }
+  return null
+}
+
+function WorkshopBlock({
+  selected,
+  candidates,
+  onAdd,
+  onRemove,
+}: {
+  selected: Act | null
+  candidates: ActSubmission[]
+  onAdd: (sub: ActSubmission) => void
+  onRemove: () => void
+}) {
+  if (!selected) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Workshop</CardTitle>
+          <CardAction>
+            <span className="text-xs text-muted-foreground">
+              {candidates.length} on file
+            </span>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Pick the class for this slot. Switching the selection later
+            replaces it.
+          </p>
+          <WorkshopPicker candidates={candidates} onAdd={onAdd} />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const sub = selected.submission
+  const highlights = WORKSHOP_HIGHLIGHTS.map((h) => ({
+    label: h.label,
+    hit: pickHighlight(sub.data, h.candidates),
+  })).filter((h) => h.hit)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Workshop</CardTitle>
+        <CardAction>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onRemove}
+            className="text-muted-foreground hover:text-destructive"
+          >
+            Change
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div>
+          <div className="font-medium text-base">
+            {sub.name ?? "Untitled workshop"}
+          </div>
+          {sub.email && (
+            <a
+              href={`mailto:${sub.email}`}
+              className="text-xs text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
+            >
+              {sub.email}
+            </a>
+          )}
+        </div>
+
+        {highlights.length > 0 && (
+          <dl className="grid grid-cols-2 gap-3">
+            {highlights.map((h) => (
+              <div
+                key={h.label}
+                className="rounded-lg border bg-muted/40 px-3 py-2"
+              >
+                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {h.label}
+                </dt>
+                <dd className="text-sm font-medium mt-0.5 break-words">
+                  {h.label === "Tickets" && /^https?:\/\//i.test(h.hit!.value) ? (
+                    <a
+                      href={h.hit!.value}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline underline-offset-4 break-all"
+                    >
+                      {h.hit!.value}
+                    </a>
+                  ) : (
+                    h.hit!.value
+                  )}
+                </dd>
+                <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                  from <span className="font-mono">{h.hit!.key}</span>
+                </div>
+              </div>
+            ))}
+          </dl>
+        )}
+
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
+            Full submission
+          </div>
+          <ActMarketingPanel submission={sub} />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function WorkshopPicker({
+  candidates,
+  onAdd,
+}: {
+  candidates: ActSubmission[]
+  onAdd: (sub: ActSubmission) => void
+}) {
+  if (candidates.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-lg">
+        No workshop submissions on file. Import a workshop CSV in Settings.
+      </p>
+    )
+  }
+  return (
+    <ul className="grid gap-2 sm:grid-cols-2">
+      {candidates.map((c) => {
+        const cost = pickHighlight(c.data, WORKSHOP_HIGHLIGHTS[0].candidates)
+        const cap = pickHighlight(c.data, WORKSHOP_HIGHLIGHTS[1].candidates)
+        return (
+          <li key={c.id}>
+            <button
+              type="button"
+              onClick={() => onAdd(c)}
+              className="w-full text-left rounded-lg border bg-card p-3 transition hover:border-blue-300 hover:shadow-sm"
+            >
+              <div className="font-medium truncate">{c.name ?? "Untitled"}</div>
+              {c.email && (
+                <div className="text-xs text-muted-foreground truncate">
+                  {c.email}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2 mt-2 text-xs text-muted-foreground">
+                {cost && <span>Cost: {cost.value}</span>}
+                {cap && <span>Max: {cap.value}</span>}
+              </div>
+            </button>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function EventBlock() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Event</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Events don&apos;t have acts or classes — they&apos;re festival
+          moments staffed by volunteers (think opening reception, closing
+          party, registration table coverage).
+        </p>
+        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-3 py-3 text-sm">
+          <div className="font-medium text-slate-900">Volunteer assignments</div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            We&apos;re wiring per-block volunteer hookup next. For now, head
+            to the Volunteers page to manage shifts.
+          </p>
+          <a
+            href="/volunteers"
+            className="mt-2 inline-block text-xs text-primary hover:underline underline-offset-4"
+          >
+            Open Volunteers →
+          </a>
+        </div>
+      </CardContent>
+    </Card>
+  )
 }

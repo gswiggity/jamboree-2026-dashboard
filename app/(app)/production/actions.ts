@@ -425,7 +425,12 @@ export async function setBlockSubmissions(
 
 export async function updateBlockProgramming(
   blockId: string,
-  patch: { title?: string | null; theme?: string | null; host?: string | null },
+  patch: {
+    title?: string | null
+    theme?: string | null
+    host?: string | null
+    kind?: "show" | "workshop" | "event"
+  },
 ): Promise<Result> {
   const { supabase, admin } = await requireAdmin()
   if (!admin) return { ok: false, error: "Admin only." }
@@ -434,7 +439,36 @@ export async function updateBlockProgramming(
   if (patch.title !== undefined) update.title = patch.title?.trim() || null
   if (patch.theme !== undefined) update.theme = patch.theme?.trim() || null
   if (patch.host !== undefined) update.host = patch.host?.trim() || null
+  if (patch.kind !== undefined) {
+    if (!["show", "workshop", "event"].includes(patch.kind)) {
+      return { ok: false, error: "Invalid block kind." }
+    }
+    update.kind = patch.kind
+  }
   if (Object.keys(update).length === 0) return { ok: true, data: null }
+
+  // Switching to workshop: keep at most one tagged submission. Switching to
+  // event: drop all tagged submissions (events are volunteer-driven).
+  if (patch.kind === "workshop") {
+    const { data: tags } = await supabase
+      .from("show_block_submissions")
+      .select("submission_id, position")
+      .eq("block_id", blockId)
+      .order("position", { ascending: true })
+    if (tags && tags.length > 1) {
+      const keep = tags[0].submission_id
+      await supabase
+        .from("show_block_submissions")
+        .delete()
+        .eq("block_id", blockId)
+        .neq("submission_id", keep)
+    }
+  } else if (patch.kind === "event") {
+    await supabase
+      .from("show_block_submissions")
+      .delete()
+      .eq("block_id", blockId)
+  }
 
   const { error } = await supabase.from("show_blocks").update(update).eq("id", blockId)
   if (error) return { ok: false, error: error.message }

@@ -40,10 +40,14 @@ export default async function BlockProgrammingPage({
 
   const { data: block, error: blockErr } = await supabase
     .from("show_blocks")
-    .select("id, draft_id, day, start_time, end_time, title, location, notes, theme, host")
+    .select(
+      "id, draft_id, day, start_time, end_time, title, location, notes, theme, host, kind",
+    )
     .eq("id", blockId)
     .single()
   if (blockErr || !block) notFound()
+  const blockKind: "show" | "workshop" | "event" =
+    block.kind === "workshop" || block.kind === "event" ? block.kind : "show"
 
   const { data: draft } = await supabase
     .from("programming_drafts")
@@ -76,16 +80,26 @@ export default async function BlockProgrammingPage({
 
   const submissionIds = (tagRows ?? []).map((t) => t.submission_id)
 
-  // All approved acts (the current viewer's "yes" verdicts) + currently tagged
-  // submissions, so the act picker is populated and the deep-dive can render
-  // the existing tags even if the viewer hasn't judged them.
-  const { data: myYes } = await supabase
-    .from("judgments")
-    .select("submission_id")
-    .eq("user_id", user.id)
-    .eq("verdict", "yes")
-  const approvedIds = (myYes ?? []).map((j) => j.submission_id)
-  const allSubIds = Array.from(new Set([...approvedIds, ...submissionIds]))
+  // Candidate pool depends on the block kind. Shows pull approved acts (the
+  // viewer's yes verdicts). Workshops show every workshop submission so the
+  // user can pick exactly one. Events have no submissions at all.
+  let candidateIds: string[] = []
+  if (blockKind === "show") {
+    const { data: myYes } = await supabase
+      .from("judgments")
+      .select("submission_id")
+      .eq("user_id", user.id)
+      .eq("verdict", "yes")
+    candidateIds = (myYes ?? []).map((j) => j.submission_id)
+  } else if (blockKind === "workshop") {
+    const { data: workshops } = await supabase
+      .from("submissions")
+      .select("id")
+      .eq("type", "workshop")
+      .is("deleted_at", null)
+    candidateIds = (workshops ?? []).map((w) => w.id)
+  }
+  const allSubIds = Array.from(new Set([...candidateIds, ...submissionIds]))
 
   const { data: subsRaw } = allSubIds.length > 0
     ? await supabase
@@ -195,7 +209,10 @@ export default async function BlockProgrammingPage({
     })
 
   const tagged = new Set(submissionIds)
-  const candidatePool = allSubs.filter((s) => !tagged.has(s.id) && s.type === "act")
+  const candidateType = blockKind === "workshop" ? "workshop" : "act"
+  const candidatePool = allSubs.filter(
+    (s) => !tagged.has(s.id) && s.type === candidateType,
+  )
 
   const dayLabel =
     FESTIVAL_DAYS.find((d) => d.date === block.day)?.long ?? block.day
@@ -284,6 +301,7 @@ export default async function BlockProgrammingPage({
             title: block.title ?? "",
             theme: block.theme ?? "",
             host: block.host ?? "",
+            kind: blockKind,
           }}
           acts={acts.map((a) => ({
             submission: a.submission,
@@ -295,7 +313,7 @@ export default async function BlockProgrammingPage({
           currentUserId={user.id}
         />
       ) : (
-        <ReadOnlyView block={block} acts={acts} />
+        <ReadOnlyView block={block} acts={acts} kind={blockKind} />
       )}
     </div>
   )
@@ -304,6 +322,7 @@ export default async function BlockProgrammingPage({
 function ReadOnlyView({
   block,
   acts,
+  kind,
 }: {
   block: {
     title: string | null
@@ -315,16 +334,23 @@ function ReadOnlyView({
     submission: { id: string; name: string | null; data: Record<string, unknown> | null }
     duration_minutes: number | null
   }[]
+  kind: "show" | "workshop" | "event"
 }) {
+  const lineupLabel =
+    kind === "workshop" ? "Workshop" : kind === "event" ? "Programmed" : "Lineup"
   return (
     <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
       <Card>
         <CardHeader>
-          <CardTitle>Lineup</CardTitle>
+          <CardTitle>{lineupLabel}</CardTitle>
         </CardHeader>
         <CardContent>
           {acts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No acts programmed yet.</p>
+            <p className="text-sm text-muted-foreground">
+              {kind === "event"
+                ? "Volunteer assignments will live here."
+                : "Nothing programmed yet."}
+            </p>
           ) : (
             <ol className="space-y-2 text-sm">
               {acts.map((a, i) => (

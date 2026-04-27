@@ -610,6 +610,7 @@ export type Database = {
           end_time: string
           host: string | null
           id: string
+          kind: string
           location: string | null
           notes: string | null
           start_time: string
@@ -624,6 +625,7 @@ export type Database = {
           end_time: string
           host?: string | null
           id?: string
+          kind?: string
           location?: string | null
           notes?: string | null
           start_time: string
@@ -638,6 +640,7 @@ export type Database = {
           end_time?: string
           host?: string | null
           id?: string
+          kind?: string
           location?: string | null
           notes?: string | null
           start_time?: string

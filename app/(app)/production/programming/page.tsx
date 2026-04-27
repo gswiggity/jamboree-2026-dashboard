@@ -66,7 +66,9 @@ export default async function ProgrammingIndexPage({
 
   const { data: blocksRaw } = await supabase
     .from("show_blocks")
-    .select("id, draft_id, day, start_time, end_time, title, location, notes, theme, host")
+    .select(
+      "id, draft_id, day, start_time, end_time, title, location, notes, theme, host, kind",
+    )
     .eq("draft_id", selected.id)
     .order("day", { ascending: true })
     .order("start_time", { ascending: true })
@@ -173,8 +175,11 @@ export default async function ProgrammingIndexPage({
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="text-xs text-muted-foreground tabular-nums">
-                              {formatTime(b.start_time)} – {formatTime(b.end_time)}
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="text-muted-foreground tabular-nums">
+                                {formatTime(b.start_time)} – {formatTime(b.end_time)}
+                              </span>
+                              <KindBadge kind={b.kind} />
                             </div>
                             <div className="font-medium truncate mt-0.5">
                               {b.title ?? "Untitled block"}
@@ -242,6 +247,24 @@ export default async function ProgrammingIndexPage({
         </div>
       )}
     </div>
+  )
+}
+
+function KindBadge({ kind }: { kind: string | null | undefined }) {
+  const k = kind === "workshop" || kind === "event" ? kind : "show"
+  const cls =
+    k === "workshop"
+      ? "bg-violet-100 text-violet-900"
+      : k === "event"
+        ? "bg-amber-100 text-amber-900"
+        : "bg-slate-100 text-slate-700"
+  const label = k === "workshop" ? "Workshop" : k === "event" ? "Event" : "Show"
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${cls}`}
+    >
+      {label}
+    </span>
   )
 }
 
