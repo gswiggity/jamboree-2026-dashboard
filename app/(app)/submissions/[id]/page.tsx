@@ -373,8 +373,6 @@ export default async function SubmissionDetailPage({
             </CardContent>
           </Card>
 
-          <ConversationsCard submissionEmail={submission.email} />
-
           <Card>
             <CardHeader>
               <CardTitle>Team verdicts</CardTitle>
@@ -423,6 +421,8 @@ export default async function SubmissionDetailPage({
           </Card>
         </div>
       </div>
+
+      <ConversationsCard submissionEmail={submission.email} />
 
       <div>
         <Link
