@@ -51,6 +51,8 @@ export type BoardCard = {
   position: number
   name: string
   typeLabel: string
+  submitter: string | null
+  members: string[]
   setLengthMinutes: number | null
   tags: string[]
   tier: Tier | null
@@ -149,7 +151,13 @@ function matchesSearch(card: BoardCard, query: string): boolean {
   // "showcase" via type+tag combined.
   const tokens = q.toLowerCase().split(/\s+/).filter(Boolean)
   if (tokens.length === 0) return true
-  const haystacks = [card.name, card.typeLabel, ...card.tags]
+  const haystacks = [
+    card.name,
+    card.typeLabel,
+    card.submitter ?? "",
+    ...(card.members ?? []),
+    ...card.tags,
+  ]
   return tokens.every((tok) => haystacks.some((h) => fuzzyMatch(h, tok)))
 }
 
@@ -803,6 +811,20 @@ function StickyCard({
       <div className="text-[11px] text-slate-700 mt-0.5">
         {card.typeLabel}
       </div>
+
+      {card.submitter && (
+        <div className="text-[11px] text-slate-700 mt-1.5 truncate">
+          <span className="text-slate-500">Submitted by</span>{" "}
+          <span className="font-medium">{card.submitter}</span>
+        </div>
+      )}
+
+      {(card.members?.length ?? 0) > 0 && (
+        <div className="text-[11px] text-slate-700 mt-0.5">
+          <span className="text-slate-500">Members</span>{" "}
+          <span>{card.members.join(", ")}</span>
+        </div>
+      )}
 
       <div className="mt-2 flex items-center gap-2 text-xs">
         <label className="text-[11px] text-slate-600">Set</label>

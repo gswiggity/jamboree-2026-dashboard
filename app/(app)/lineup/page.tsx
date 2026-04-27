@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { canonicalActType } from "@/lib/act-types"
+import { parsePerformersField } from "@/lib/performers"
 import { SUBMISSION_TYPES, TYPE_LABELS, type SubmissionType } from "@/lib/csv"
 import { cn } from "@/lib/utils"
 import { LineupBoard, type BoardCard, type BoardColumn } from "./board"
@@ -472,6 +473,17 @@ function EmptyLineup({ type }: { type: SubmissionType }) {
 
 /* -------------------------------------------------- board view */
 
+function pickStringField(
+  data: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const k of keys) {
+    const v = data[k]
+    if (typeof v === "string" && v.trim().length > 0) return v.trim()
+  }
+  return null
+}
+
 async function BoardView() {
   const supabase = await createClient()
 
@@ -545,6 +557,12 @@ async function BoardView() {
       typeof data["GroupAct Type"] === "string"
         ? (data["GroupAct Type"] as string)
         : null
+    const submitter =
+      pickStringField(data, ["Primary Contact 11", "Primary Contact Name"]) ??
+      null
+    const performersRaw =
+      pickStringField(data, ["Performers"]) ?? ""
+    const members = parsePerformersField(performersRaw)
     const v = verdictById.get(id)
     const counts = {
       yes_count: v?.yes_count ?? 0,
@@ -558,6 +576,8 @@ async function BoardView() {
       position: card.position,
       name: sub.name ?? "(no name)",
       typeLabel: canonicalActType(rawType).label,
+      submitter,
+      members,
       setLengthMinutes: card.set_length_minutes,
       tags: card.tags ?? [],
       tier: classify({
