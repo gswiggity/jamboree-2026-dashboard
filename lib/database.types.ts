@@ -604,6 +604,7 @@ export type Database = {
       }
       show_blocks: {
         Row: {
+          buffer_minutes: number
           created_at: string
           day: string
           draft_id: string
@@ -619,6 +620,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          buffer_minutes?: number
           created_at?: string
           day: string
           draft_id: string
@@ -634,6 +636,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          buffer_minutes?: number
           created_at?: string
           day?: string
           draft_id?: string

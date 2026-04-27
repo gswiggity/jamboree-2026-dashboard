@@ -41,13 +41,23 @@ export default async function BlockProgrammingPage({
   const { data: block, error: blockErr } = await supabase
     .from("show_blocks")
     .select(
-      "id, draft_id, day, start_time, end_time, title, location, notes, theme, host, kind",
+      "id, draft_id, day, start_time, end_time, title, location, notes, theme, host, kind, buffer_minutes",
     )
     .eq("id", blockId)
     .single()
   if (blockErr || !block) notFound()
   const blockKind: "show" | "workshop" | "event" =
     block.kind === "workshop" || block.kind === "event" ? block.kind : "show"
+
+  // Block window length in minutes for the progress bar.
+  function timeToMin(t: string): number {
+    const [hh, mm] = t.split(":").map(Number)
+    return hh * 60 + mm
+  }
+  const blockLengthMinutes = Math.max(
+    0,
+    timeToMin(block.end_time) - timeToMin(block.start_time),
+  )
 
   const { data: draft } = await supabase
     .from("programming_drafts")
@@ -214,6 +224,47 @@ export default async function BlockProgrammingPage({
     (s) => !tagged.has(s.id) && s.type === candidateType,
   )
 
+  // Submissions booked in any *other* block of this draft. Used by the
+  // carousel to grey out cards for acts that already have a slot somewhere
+  // in the festival, so we don't double-book.
+  const { data: otherDraftBlocks } = await supabase
+    .from("show_blocks")
+    .select("id, title, day, start_time")
+    .eq("draft_id", block.draft_id)
+    .neq("id", blockId)
+  const otherBlockIds = (otherDraftBlocks ?? []).map((b) => b.id)
+  const blockMetaById = new Map(
+    (otherDraftBlocks ?? []).map((b) => [
+      b.id,
+      {
+        title: b.title,
+        day: b.day,
+        start_time: b.start_time,
+      },
+    ]),
+  )
+  const { data: otherTagRows } = otherBlockIds.length > 0
+    ? await supabase
+        .from("show_block_submissions")
+        .select("submission_id, block_id")
+        .in("block_id", otherBlockIds)
+    : { data: [] }
+  const bookedElsewhere: Record<
+    string,
+    { blockId: string; blockTitle: string | null; day: string; start_time: string }
+  > = {}
+  for (const t of otherTagRows ?? []) {
+    if (bookedElsewhere[t.submission_id]) continue
+    const meta = blockMetaById.get(t.block_id)
+    if (!meta) continue
+    bookedElsewhere[t.submission_id] = {
+      blockId: t.block_id,
+      blockTitle: meta.title,
+      day: meta.day,
+      start_time: meta.start_time,
+    }
+  }
+
   const dayLabel =
     FESTIVAL_DAYS.find((d) => d.date === block.day)?.long ?? block.day
 
@@ -302,13 +353,16 @@ export default async function BlockProgrammingPage({
             theme: block.theme ?? "",
             host: block.host ?? "",
             kind: blockKind,
+            buffer_minutes: block.buffer_minutes ?? 0,
           }}
+          blockLengthMinutes={blockLengthMinutes}
           acts={acts.map((a) => ({
             submission: a.submission,
             duration_minutes: a.duration_minutes,
           }))}
           candidates={candidatePool}
           judgmentsBySubmission={judgmentsBySubmission}
+          bookedElsewhere={bookedElsewhere}
           comments={blockComments}
           currentUserId={user.id}
         />

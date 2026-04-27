@@ -430,6 +430,7 @@ export async function updateBlockProgramming(
     theme?: string | null
     host?: string | null
     kind?: "show" | "workshop" | "event"
+    buffer_minutes?: number
   },
 ): Promise<Result> {
   const { supabase, admin } = await requireAdmin()
@@ -444,6 +445,13 @@ export async function updateBlockProgramming(
       return { ok: false, error: "Invalid block kind." }
     }
     update.kind = patch.kind
+  }
+  if (patch.buffer_minutes !== undefined) {
+    const n = Math.round(patch.buffer_minutes)
+    if (!Number.isFinite(n) || n < 0 || n > 60) {
+      return { ok: false, error: "Buffer must be 0–60 minutes." }
+    }
+    update.buffer_minutes = n
   }
   if (Object.keys(update).length === 0) return { ok: true, data: null }
 

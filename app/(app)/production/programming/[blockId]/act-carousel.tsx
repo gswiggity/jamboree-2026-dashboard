@@ -54,10 +54,18 @@ const TIER_RANK: Record<Tier, number> = {
   none: 3,
 }
 
+export type BookedElsewhereInfo = {
+  blockId: string
+  blockTitle: string | null
+  day: string
+  start_time: string
+}
+
 type Props = {
   candidates: ActSubmission[]
   excludedIds: Set<string>
   judgmentsBySubmission: Record<string, ActJudgment[]>
+  bookedElsewhere?: Record<string, BookedElsewhereInfo>
   onAdd: (sub: ActSubmission) => void
 }
 
@@ -65,6 +73,7 @@ export function ActCarousel({
   candidates,
   excludedIds,
   judgmentsBySubmission,
+  bookedElsewhere,
   onAdd,
 }: Props) {
   const pool = useMemo(
@@ -320,6 +329,7 @@ export function ActCarousel({
                 key={c.id}
                 sub={c}
                 judgments={judgmentsBySubmission[c.id] ?? []}
+                bookedElsewhere={bookedElsewhere?.[c.id]}
                 onAdd={() => onAdd(c)}
               />
             ))}
@@ -377,10 +387,12 @@ function CarouselButton({
 function ActCard({
   sub,
   judgments,
+  bookedElsewhere,
   onAdd,
 }: {
   sub: ActSubmission
   judgments: ActJudgment[]
+  bookedElsewhere?: BookedElsewhereInfo
   onAdd: () => void
 }) {
   const typeLabel = canonicalActType(pickStr(sub.data, "GroupAct Type")).label
@@ -388,9 +400,15 @@ function ActCard({
   const contact = pickStr(sub.data, "Primary Contact 11")
   const blurb = pickBlurb(sub)
   const embed = pickFirstEmbedUrl(sub)
+  const isBooked = !!bookedElsewhere
 
   return (
-    <div className="snap-start shrink-0 w-[320px] rounded-xl border bg-card flex flex-col overflow-hidden">
+    <div
+      className={cn(
+        "snap-start shrink-0 w-[320px] rounded-xl border bg-card flex flex-col overflow-hidden",
+        isBooked && "opacity-60",
+      )}
+    >
       {embed ? (
         <div className="aspect-video bg-muted">
           <iframe
@@ -419,8 +437,28 @@ function ActCard({
                 {location}
               </Badge>
             )}
+            {isBooked && (
+              <Badge
+                variant="outline"
+                className="font-normal border-rose-300 bg-rose-50 text-rose-900"
+              >
+                Already booked
+              </Badge>
+            )}
           </div>
         </div>
+        {isBooked && bookedElsewhere && (
+          <a
+            href={`/production/programming/${bookedElsewhere.blockId}`}
+            className="text-[11px] text-rose-700 hover:underline underline-offset-4"
+          >
+            In{" "}
+            <span className="font-medium">
+              {bookedElsewhere.blockTitle ?? "another block"}
+            </span>{" "}
+            · {formatBookedSlot(bookedElsewhere.day, bookedElsewhere.start_time)}
+          </a>
+        )}
         <VerdictRow judgments={judgments} />
         <VideoLinkEditor
           submissionId={sub.id}
@@ -438,14 +476,33 @@ function ActCard({
             type="button"
             size="sm"
             onClick={onAdd}
+            disabled={isBooked}
+            title={isBooked ? "Already booked elsewhere this festival" : ""}
             className="h-7 gap-1"
           >
-            <PlusIcon className="size-3.5" /> Add
+            <PlusIcon className="size-3.5" />
+            {isBooked ? "Booked" : "Add"}
           </Button>
         </div>
       </div>
     </div>
   )
+}
+
+function formatBookedSlot(day: string, startTime: string): string {
+  const [hh, mm] = startTime.split(":").map(Number)
+  const period = hh < 12 ? "am" : "pm"
+  const hh12 = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh
+  const time =
+    mm === 0 ? `${hh12}${period}` : `${hh12}:${String(mm).padStart(2, "0")}${period}`
+  // Day is 'YYYY-MM-DD'; render as compact 'Fri 7/10' style.
+  try {
+    const d = new Date(`${day}T00:00:00`)
+    const dayName = d.toLocaleDateString(undefined, { weekday: "short" })
+    return `${dayName} ${time}`
+  } catch {
+    return time
+  }
 }
 
 const VERDICT_STYLE: Record<

@@ -39,12 +39,27 @@ type Act = {
 
 type BlockKind = "show" | "workshop" | "event"
 
+export type BookedElsewhereInfo = {
+  blockId: string
+  blockTitle: string | null
+  day: string
+  start_time: string
+}
+
 type Props = {
   blockId: string
-  initial: { title: string; theme: string; host: string; kind: BlockKind }
+  initial: {
+    title: string
+    theme: string
+    host: string
+    kind: BlockKind
+    buffer_minutes: number
+  }
+  blockLengthMinutes: number
   acts: Act[]
   candidates: ActSubmission[]
   judgmentsBySubmission: Record<string, ActJudgment[]>
+  bookedElsewhere: Record<string, BookedElsewhereInfo>
   comments: BlockComment[]
   currentUserId: string
 }
@@ -68,9 +83,11 @@ const KIND_OPTIONS: Array<{ key: BlockKind; label: string; hint: string }> = [
 export function BlockProgrammingShell({
   blockId,
   initial,
+  blockLengthMinutes,
   acts: initialActs,
   candidates,
   judgmentsBySubmission,
+  bookedElsewhere,
   comments,
   currentUserId,
 }: Props) {
@@ -79,10 +96,29 @@ export function BlockProgrammingShell({
 
   const [header, setHeader] = useState(initial)
   const [kind, setKind] = useState<BlockKind>(initial.kind)
+  const [bufferMinutes, setBufferMinutes] = useState<number>(initial.buffer_minutes)
   const [savingField, setSavingField] = useState<HeaderField | null>(null)
   const [savedField, setSavedField] = useState<HeaderField | null>(null)
   const [kindPending, setKindPending] = useState(false)
   const initialRef = useRef(initial)
+  const bufferDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function commitBuffer(value: number) {
+    startTransition(async () => {
+      const r = await updateBlockProgramming(blockId, { buffer_minutes: value })
+      if (!r.ok) {
+        toast.error(r.error)
+        return
+      }
+      router.refresh()
+    })
+  }
+
+  function onBufferChange(value: number) {
+    setBufferMinutes(value)
+    if (bufferDebounceRef.current) clearTimeout(bufferDebounceRef.current)
+    bufferDebounceRef.current = setTimeout(() => commitBuffer(value), 600)
+  }
   const debounceRefs = useRef<Record<HeaderField, ReturnType<typeof setTimeout> | null>>({
     title: null,
     theme: null,
@@ -319,17 +355,10 @@ export function BlockProgrammingShell({
               </CardAction>
             </CardHeader>
             <CardContent className="space-y-4">
-              <ActCarousel
-                candidates={candidates}
-                excludedIds={
-                  new Set(acts.map((a) => a.submission.id))
-                }
-                judgmentsBySubmission={judgmentsBySubmission}
-                onAdd={handleAdd}
-              />
               {acts.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">
-                  Add acts above to start building this block.
+                  Pick acts from the carousel below to start building this
+                  block.
                 </p>
               ) : (
                 <ol className="space-y-2">
@@ -372,6 +401,28 @@ export function BlockProgrammingShell({
                   ))}
                 </ol>
               )}
+
+              <BlockTimingBar
+                blockLengthMinutes={blockLengthMinutes}
+                acts={acts}
+                bufferMinutes={bufferMinutes}
+                onBufferChange={onBufferChange}
+              />
+
+              <div className="border-t pt-4">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">
+                  Add another act
+                </div>
+                <ActCarousel
+                  candidates={candidates}
+                  excludedIds={
+                    new Set(acts.map((a) => a.submission.id))
+                  }
+                  judgmentsBySubmission={judgmentsBySubmission}
+                  bookedElsewhere={bookedElsewhere}
+                  onAdd={handleAdd}
+                />
+              </div>
             </CardContent>
           </Card>
         )}
@@ -599,6 +650,138 @@ function pickActMeta(s: ActSubmission): string | null {
   const city = pickStr(s.data, "Location")
   const kind = pickStr(s.data, "GroupAct Type")
   return [city, kind].filter(Boolean).join(" · ") || null
+}
+
+function BlockTimingBar({
+  blockLengthMinutes,
+  acts,
+  bufferMinutes,
+  onBufferChange,
+}: {
+  blockLengthMinutes: number
+  acts: Act[]
+  bufferMinutes: number
+  onBufferChange: (next: number) => void
+}) {
+  const programmed = acts.reduce(
+    (acc, a) => acc + (a.duration_minutes ?? 0),
+    0,
+  )
+  const totalBuffer = acts.length > 1 ? bufferMinutes * (acts.length - 1) : 0
+  const used = programmed + totalBuffer
+  const overBudget = blockLengthMinutes > 0 && used > blockLengthMinutes
+  const remaining = Math.max(0, blockLengthMinutes - used)
+  // Bar denominator: at least the block length, but expand if we're over so
+  // the act segments stay sized correctly.
+  const barTotal = Math.max(blockLengthMinutes, used, 1)
+
+  // Build segment list — alternating act + buffer, optional remaining tail.
+  type Segment =
+    | { kind: "act"; minutes: number; label: string; index: number }
+    | { kind: "buffer"; minutes: number }
+    | { kind: "remaining"; minutes: number }
+    | { kind: "over"; minutes: number }
+  const segments: Segment[] = []
+  acts.forEach((a, i) => {
+    segments.push({
+      kind: "act",
+      minutes: a.duration_minutes ?? 0,
+      label: a.submission.name ?? "Untitled",
+      index: i,
+    })
+    if (i < acts.length - 1 && bufferMinutes > 0) {
+      segments.push({ kind: "buffer", minutes: bufferMinutes })
+    }
+  })
+  if (overBudget) {
+    segments.push({ kind: "over", minutes: used - blockLengthMinutes })
+  } else if (remaining > 0) {
+    segments.push({ kind: "remaining", minutes: remaining })
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Block
+          </span>
+          <span
+            className={cn(
+              "font-semibold tabular-nums",
+              overBudget && "text-rose-700",
+            )}
+          >
+            {used} / {blockLengthMinutes} min
+          </span>
+          <span className="text-muted-foreground">
+            {overBudget
+              ? `(${used - blockLengthMinutes} over)`
+              : `(${remaining} left)`}
+          </span>
+        </div>
+        <label className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Buffer between acts</span>
+          <Input
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={String(bufferMinutes)}
+            onChange={(e) => {
+              const raw = e.target.value.replace(/[^0-9]/g, "")
+              const n = raw === "" ? 0 : Math.min(60, Number(raw))
+              onBufferChange(n)
+            }}
+            className="h-7 w-14 text-xs text-right tabular-nums"
+            aria-label="Buffer minutes between acts"
+          />
+          <span className="text-muted-foreground">min</span>
+        </label>
+      </div>
+
+      {acts.length === 0 ? (
+        <div className="h-3 rounded-full bg-slate-200/70" />
+      ) : (
+        <div className="flex h-3 overflow-hidden rounded-full bg-slate-200/70">
+          {segments.map((s, i) => {
+            const widthPct = (s.minutes / barTotal) * 100
+            if (widthPct <= 0) return null
+            const cls =
+              s.kind === "act"
+                ? "bg-blue-500"
+                : s.kind === "buffer"
+                  ? "bg-blue-200"
+                  : s.kind === "over"
+                    ? "bg-rose-500"
+                    : "bg-transparent"
+            const title =
+              s.kind === "act"
+                ? `${s.label} · ${s.minutes} min`
+                : s.kind === "buffer"
+                  ? `Buffer · ${s.minutes} min`
+                  : s.kind === "over"
+                    ? `${s.minutes} min over`
+                    : `${s.minutes} min unused`
+            return (
+              <div
+                key={`${s.kind}-${i}`}
+                className={cn("h-full", cls)}
+                style={{ width: `${widthPct}%` }}
+                title={title}
+                aria-label={title}
+              />
+            )
+          })}
+        </div>
+      )}
+
+      {acts.length > 1 && bufferMinutes > 0 && (
+        <p className="text-[10px] text-muted-foreground">
+          {acts.length - 1} gaps × {bufferMinutes} min ={" "}
+          <span className="tabular-nums">{totalBuffer} min</span> of buffer
+        </p>
+      )}
+    </div>
+  )
 }
 
 // Highlighted fields shown at the top of the workshop selection. Order is the
