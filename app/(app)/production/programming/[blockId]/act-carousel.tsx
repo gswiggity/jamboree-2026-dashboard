@@ -29,7 +29,30 @@ import {
   type ActSubmission,
 } from "./act-marketing"
 
-type Sort = "name_asc" | "name_desc" | "type" | "location"
+type Sort = "name_asc" | "name_desc" | "type" | "location" | "verdicts"
+
+type Tier = "locked" | "likely" | "bubble" | "none"
+
+// Mirrors the bucketing on /lineup so the sort produces the same ordering.
+function classifyTier(judgments: ActJudgment[]): Tier {
+  let yes = 0
+  let no = 0
+  for (const j of judgments) {
+    if (j.verdict === "yes") yes++
+    else if (j.verdict === "no") no++
+  }
+  if (yes <= 0) return "none"
+  if (yes >= 2 && no === 0) return "locked"
+  if (yes > no) return "likely"
+  return "bubble"
+}
+
+const TIER_RANK: Record<Tier, number> = {
+  locked: 0,
+  likely: 1,
+  bubble: 2,
+  none: 3,
+}
 
 type Props = {
   candidates: ActSubmission[]
@@ -118,12 +141,26 @@ export function ActCarousel({
           (a.name ?? "").localeCompare(b.name ?? "")
         )
       }
+      if (sort === "verdicts") {
+        const aj = judgmentsBySubmission[a.id] ?? []
+        const bj = judgmentsBySubmission[b.id] ?? []
+        const at = TIER_RANK[classifyTier(aj)]
+        const bt = TIER_RANK[classifyTier(bj)]
+        if (at !== bt) return at - bt
+        const ay = aj.filter((j) => j.verdict === "yes").length
+        const by = bj.filter((j) => j.verdict === "yes").length
+        if (ay !== by) return by - ay
+        const an = aj.filter((j) => j.verdict === "no").length
+        const bn = bj.filter((j) => j.verdict === "no").length
+        if (an !== bn) return an - bn
+        return (a.name ?? "").localeCompare(b.name ?? "")
+      }
       const al = pickStr(a.data, "Location") ?? ""
       const bl = pickStr(b.data, "Location") ?? ""
       return al.localeCompare(bl) || (a.name ?? "").localeCompare(b.name ?? "")
     })
     return list
-  }, [pool, actTypes, locations, search, sort])
+  }, [pool, actTypes, locations, search, sort, judgmentsBySubmission])
 
   const scrollerRef = useRef<HTMLDivElement>(null)
   const [activeIdx, setActiveIdx] = useState(0)
@@ -209,10 +246,11 @@ export function ActCarousel({
             resetScroll()
           }}
         >
-          <SelectTrigger className="h-8 w-44 text-sm">
+          <SelectTrigger className="h-8 w-48 text-sm">
             <SelectValue>
               {(v) => {
                 const map: Record<string, string> = {
+                  verdicts: "Sort: Lineup tier",
                   name_asc: "Sort: Name A→Z",
                   name_desc: "Sort: Name Z→A",
                   type: "Sort: Act type",
@@ -223,6 +261,7 @@ export function ActCarousel({
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="verdicts">Lineup tier (locked → bubble)</SelectItem>
             <SelectItem value="name_asc">Name A→Z</SelectItem>
             <SelectItem value="name_desc">Name Z→A</SelectItem>
             <SelectItem value="type">Act type</SelectItem>
