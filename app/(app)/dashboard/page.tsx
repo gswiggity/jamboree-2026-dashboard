@@ -1,20 +1,20 @@
 import Link from "next/link"
 import {
-  AlertCircle,
   ArrowRight,
   ArrowUpRight,
   CalendarDays,
-  Mail,
+  CheckSquare,
+  FileText,
+  LayoutGrid,
   Mic2,
   Sparkles,
   TrendingUp,
   Users,
-  Wallet,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
-import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { nextPhase, resolveCurrentPhase, type Phase } from "@/lib/phases"
+import { Notepad, type NoteAuthor, type NoteRow } from "./notepad"
 
 const FESTIVAL = {
   name: "Swear Jar Jamboree",
@@ -24,16 +24,10 @@ const FESTIVAL = {
 }
 
 const SPARK_DAYS = 15
-// Stubs until these pillars have data models.
-const STUBS = {
-  budgetUsed: 2400,
-  budgetTotal: 8000,
+// Ticket goal numbers are still placeholder until /tickets is wired up.
+const TICKET_STUBS = {
   ticketSales: 0,
   ticketGoal: 1200,
-  commsDrafts: 2,
-  commsNextSend: "3d",
-  productionShows: 4,
-  productionBooked: 0,
   ticketOnSaleDate: "May 15",
 }
 
@@ -73,9 +67,15 @@ export default async function DashboardPage() {
     { data: submissions },
     { data: myJudgments },
     { data: recentJudgments },
-    { count: profilesCount },
+    { data: profilesData, count: profilesCount },
     { data: phaseRow },
     { data: phases },
+    { data: notes },
+    { count: openTasksCount },
+    { count: totalTasksCount },
+    { count: lineupUnsortedCount },
+    { count: lineupTotalCount },
+    { count: documentsCount },
   ] = await Promise.all([
     supabase
       .from("submissions")
@@ -87,13 +87,31 @@ export default async function DashboardPage() {
       .select("id, verdict, updated_at, user_id, profiles!judgments_user_id_fkey(email)")
       .order("updated_at", { ascending: false })
       .limit(5),
-    supabase.from("profiles").select("id", { count: "exact", head: true }),
+    supabase
+      .from("profiles")
+      .select("id, full_name, email", { count: "exact" }),
     supabase
       .from("festival_settings")
       .select("phase")
       .eq("id", true)
       .maybeSingle(),
     supabase.from("phases").select("*").order("sort_order", { ascending: true }),
+    supabase
+      .from("notes")
+      .select("id, body, pinned, created_at, updated_at, created_by")
+      .order("pinned", { ascending: false })
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("tasks")
+      .select("id", { count: "exact", head: true })
+      .is("completed_at", null),
+    supabase.from("tasks").select("id", { count: "exact", head: true }),
+    supabase
+      .from("lineup_cards")
+      .select("id", { count: "exact", head: true })
+      .is("column_id", null),
+    supabase.from("lineup_cards").select("id", { count: "exact", head: true }),
+    supabase.from("documents").select("id", { count: "exact", head: true }),
   ])
 
   const counts = { act: 0, volunteer: 0, workshop: 0 }
@@ -104,6 +122,24 @@ export default async function DashboardPage() {
   const totalJudged = (myJudgments ?? []).filter((j) => j.verdict !== null).length
   const unjudged = Math.max(0, totalSubmissions - totalJudged)
   const teamCount = profilesCount ?? 0
+  const openTasks = openTasksCount ?? 0
+  const totalTasks = totalTasksCount ?? 0
+  const lineupUnsorted = lineupUnsortedCount ?? 0
+  const lineupTotal = lineupTotalCount ?? 0
+  const documentsTotal = documentsCount ?? 0
+  const noteRows: NoteRow[] = (notes ?? []).map((n) => ({
+    id: n.id,
+    body: n.body,
+    pinned: n.pinned,
+    created_at: n.created_at,
+    updated_at: n.updated_at,
+    created_by: n.created_by,
+  }))
+  const noteAuthors: NoteAuthor[] = (profilesData ?? []).map((p) => ({
+    id: p.id,
+    name: p.full_name,
+    email: p.email,
+  }))
   const submissionTrend = bucketSubmissionsByDay(
     (submissions ?? []).map((s) => s.submitted_at),
     SPARK_DAYS,
@@ -115,8 +151,7 @@ export default async function DashboardPage() {
   const phase = resolveCurrentPhase(phaseList, phaseRow?.phase)
   const upcomingPhase = nextPhase(phaseList, phase.key)
   const judgingPct = counts.act > 0 ? Math.round((totalJudged / counts.act) * 100) : 0
-  const budgetPct = Math.round((STUBS.budgetUsed / STUBS.budgetTotal) * 100)
-  const ticketPct = Math.round((STUBS.ticketSales / STUBS.ticketGoal) * 100)
+  const ticketPct = Math.round((TICKET_STUBS.ticketSales / TICKET_STUBS.ticketGoal) * 100)
   // The countdown ring visualises "time elapsed in the 365-day lead-up" — capped 0..100.
   const countdownPct = Math.min(100, Math.max(0, ((365 - days) / 365) * 100))
 
@@ -216,247 +251,253 @@ export default async function DashboardPage() {
         </Tile>
       </section>
 
-      {/* ATTENTION */}
-      <section>
-        <SectionHeader title="Needs your attention" count="3 items" />
-        <div className="grid grid-cols-12 gap-3">
-          <Tile className="col-span-12 md:col-span-6 lg:col-span-5">
-            <Link href="/judge?type=act" className="flex items-start gap-4 group">
-              <div className="rounded-xl p-2.5 bg-blue-100 text-blue-900 shrink-0">
-                <Mic2 className="h-5 w-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-blue-900 mb-1">
-                  Judging
-                </div>
-                <h3 className="font-[family-name:var(--font-serif)] text-2xl text-blue-950 leading-tight">
-                  <span className="tabular-nums">{unjudged}</span> unjudged{" "}
-                  {unjudged === 1 ? "submission" : "submissions"}
-                </h3>
-                <p className="text-sm text-slate-700 mt-1.5">
-                  Clear the queue with keyboard shortcuts.
-                </p>
-                <span className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-[#2340d9] group-hover:underline">
-                  Enter judging mode <ArrowRight className="h-3.5 w-3.5" />
-                </span>
-              </div>
-            </Link>
-          </Tile>
-          <Tile className="col-span-12 md:col-span-6 lg:col-span-4" stub>
-            <ActionBlock
-              tone="sky"
-              icon={<Mail className="h-4 w-4" />}
-              kicker="Comms"
-              title="Volunteer kickoff email"
-              subtitle={`Draft · scheduled in ${STUBS.commsNextSend}`}
-            />
-          </Tile>
-          <Tile className="col-span-12 md:col-span-12 lg:col-span-3" stub>
-            <ActionBlock
-              tone="rose"
-              icon={<AlertCircle className="h-4 w-4" />}
-              kicker="Financials"
-              title="Venue deposit due"
-              subtitle="$500 · by May 1"
-            />
-          </Tile>
-        </div>
-      </section>
-
-      {/* PILLARS */}
-      <section>
-        <SectionHeader title="Festival pillars" count="5 areas" />
-        <div className="grid grid-cols-12 auto-rows-[minmax(150px,auto)] gap-3">
-          <Tile className="col-span-12 lg:col-span-6 row-span-2">
-            <Link href="/submissions" className="flex flex-col h-full gap-4 group">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="rounded-xl p-1.5 bg-blue-100 text-blue-900">
-                    <Sparkles className="h-4 w-4" />
+      {/* MAIN: real tiles on the left, notepad pinned to the right */}
+      <div className="grid grid-cols-12 gap-6 items-stretch">
+        <div className="col-span-12 lg:col-span-8 space-y-10">
+          {/* ATTENTION */}
+          <section>
+            <SectionHeader title="Needs your attention" count="3 items" />
+            <div className="grid grid-cols-12 gap-3">
+              <Tile className="col-span-12 sm:col-span-4 !p-4">
+                <Link href="/judge?type=act" className="flex flex-col h-full gap-2 group">
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-xl p-1.5 bg-blue-100 text-blue-900">
+                      <Mic2 className="h-4 w-4" />
+                    </div>
+                    <div className="text-[10px] uppercase tracking-[0.22em] font-semibold text-blue-900">
+                      Judging
+                    </div>
                   </div>
-                  <div className="text-[11px] uppercase tracking-[0.2em] font-semibold text-slate-700">
-                    Talent
+                  <h3 className="font-[family-name:var(--font-serif)] text-xl text-blue-950 leading-tight mt-1">
+                    <span className="tabular-nums">{unjudged}</span> unjudged
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    Clear the queue with shortcuts.
+                  </p>
+                  <span className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-[#2340d9] group-hover:underline">
+                    Enter judging <ArrowRight className="h-3 w-3" />
+                  </span>
+                </Link>
+              </Tile>
+              <Tile className="col-span-12 sm:col-span-4 !p-4">
+                <Link href="/tasks" className="flex flex-col h-full gap-2 group">
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-xl p-1.5 bg-emerald-100 text-emerald-900">
+                      <CheckSquare className="h-4 w-4" />
+                    </div>
+                    <div className="text-[10px] uppercase tracking-[0.22em] font-semibold text-emerald-900">
+                      Tasks
+                    </div>
                   </div>
-                </div>
-                {trendThisWeek > 0 && (
-                  <div className="text-xs text-slate-600 inline-flex items-center gap-1">
-                    <TrendingUp className="h-3 w-3 text-emerald-600" />
-                    <span>+{trendThisWeek} this week</span>
+                  <h3 className="font-[family-name:var(--font-serif)] text-xl text-blue-950 leading-tight mt-1">
+                    <span className="tabular-nums">{openTasks}</span> open
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    {totalTasks > 0
+                      ? `${totalTasks - openTasks} of ${totalTasks} done.`
+                      : "No tasks yet."}
+                  </p>
+                  <span className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-[#2340d9] group-hover:underline">
+                    Open tasks <ArrowRight className="h-3 w-3" />
+                  </span>
+                </Link>
+              </Tile>
+              <Tile className="col-span-12 sm:col-span-4 !p-4">
+                <Link href="/lineup" className="flex flex-col h-full gap-2 group">
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-xl p-1.5 bg-amber-100 text-amber-900">
+                      <LayoutGrid className="h-4 w-4" />
+                    </div>
+                    <div className="text-[10px] uppercase tracking-[0.22em] font-semibold text-amber-900">
+                      Lineup
+                    </div>
                   </div>
-                )}
-              </div>
-              <div>
-                <div className="flex items-baseline gap-2">
-                  <div className="font-semibold text-5xl text-slate-900 tabular-nums leading-none">
-                    {totalSubmissions}
-                  </div>
-                  <div className="font-[family-name:var(--font-serif)] italic text-xl text-slate-700">
-                    submissions
-                  </div>
-                </div>
-                <div className="text-sm text-slate-600 mt-2">
-                  <span className="tabular-nums font-medium text-slate-800">{counts.act}</span> acts ·{" "}
-                  <span className="tabular-nums font-medium text-slate-800">{counts.volunteer}</span> vols ·{" "}
-                  <span className="tabular-nums font-medium text-slate-800">{counts.workshop}</span> wksps
-                </div>
-              </div>
-              <div className="flex-1 flex items-end min-h-[64px]">
-                <Sparkline
-                  values={submissionTrend}
-                  className="w-full h-16"
-                  stroke="#2340d9"
-                  fill="rgba(35,64,217,0.08)"
-                />
-              </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
-                <span>{SPARK_DAYS} days ago</span>
-                <span>today</span>
-              </div>
-            </Link>
-          </Tile>
-
-          <Tile className="col-span-12 md:col-span-6 lg:col-span-3" stub>
-            <PillarBody
-              tone="sky"
-              icon={<Mail className="h-4 w-4" />}
-              name="Comms"
-              value={`${STUBS.commsDrafts}`}
-              unit="drafts"
-              secondary={`Next send in ${STUBS.commsNextSend}`}
-            />
-          </Tile>
-
-          <Tile className="col-span-12 md:col-span-6 lg:col-span-3" stub>
-            <PillarBody
-              tone="cyan"
-              icon={<CalendarDays className="h-4 w-4" />}
-              name="Production"
-              value={`${STUBS.productionShows}`}
-              unit="shows"
-              secondary={`${STUBS.productionBooked} of ${STUBS.productionShows} booked`}
-            />
-          </Tile>
-
-          <Tile className="col-span-12 md:col-span-6 lg:col-span-3" stub>
-            <div className="flex flex-col h-full gap-2">
-              <div className="flex items-center gap-2">
-                <div className="rounded-xl p-1.5 bg-emerald-100 text-emerald-900">
-                  <Wallet className="h-4 w-4" />
-                </div>
-                <div className="text-[11px] uppercase tracking-[0.2em] font-semibold text-slate-700">
-                  Financials
-                </div>
-              </div>
-              <div className="flex items-baseline gap-1.5 mt-1">
-                <span className="font-semibold text-2xl text-slate-900 tabular-nums leading-none">
-                  ${(STUBS.budgetUsed / 1000).toFixed(1)}k
-                </span>
-                <span className="text-xs text-slate-600">of ${STUBS.budgetTotal / 1000}k</span>
-              </div>
-              <div className="mt-2">
-                <div className="h-1.5 rounded-full bg-emerald-100/80 overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-500 rounded-full"
-                    style={{ width: `${budgetPct}%` }}
-                  />
-                </div>
-                <div className="text-xs text-slate-600 mt-1.5">{budgetPct}% of budget used</div>
-              </div>
+                  <h3 className="font-[family-name:var(--font-serif)] text-xl text-blue-950 leading-tight mt-1">
+                    <span className="tabular-nums">{lineupUnsorted}</span> unsorted
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    {lineupTotal > 0
+                      ? `${lineupTotal - lineupUnsorted} of ${lineupTotal} placed.`
+                      : "No acts in lineup yet."}
+                  </p>
+                  <span className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-[#2340d9] group-hover:underline">
+                    Open board <ArrowRight className="h-3 w-3" />
+                  </span>
+                </Link>
+              </Tile>
             </div>
-          </Tile>
+          </section>
 
-          <Tile className="col-span-12 md:col-span-6 lg:col-span-3">
-            <Link href="/settings" className="flex flex-col h-full gap-3">
-              <PillarBody
-                tone="slate"
-                icon={<Users className="h-4 w-4" />}
-                name="Ops"
-                value={`${teamCount}`}
-                unit={teamCount === 1 ? "member" : "members"}
-                secondary="Allowlist on /settings"
-              />
-            </Link>
-          </Tile>
-        </div>
-      </section>
-
-      {/* ACTIVITY + TICKET GOAL */}
-      <section className="grid grid-cols-12 gap-3">
-        <Tile className="col-span-12 lg:col-span-8">
-          <div className="flex items-baseline justify-between mb-4">
-            <h2 className="font-[family-name:var(--font-serif)] text-2xl text-blue-950">
-              Team activity
-            </h2>
-            <Link
-              href="/analysis"
-              className="text-xs font-semibold text-[#2340d9] hover:underline"
-            >
-              View all →
-            </Link>
-          </div>
-          {recentJudgments && recentJudgments.length > 0 ? (
-            <ul className="divide-y divide-slate-200/60 text-sm -mx-1">
-              {recentJudgments.map((j) => {
-                const actorEmail = getActorEmail(j.profiles)
-                const actor = actorEmail?.split("@")[0] ?? "someone"
-                return (
-                  <li key={j.id} className="px-1 py-3 flex items-center gap-3">
-                    <span className={cn("h-2 w-2 rounded-full shrink-0", verdictDot(j.verdict))} />
-                    <div className="flex-1 min-w-0 flex items-center justify-between gap-3">
-                      <div className="truncate">
-                        <span className="font-semibold text-slate-900 capitalize">{actor}</span>{" "}
-                        <span className="text-slate-700">
-                          verdict · {j.verdict ?? "skip"}
-                        </span>
+          {/* PILLARS */}
+          <section>
+            <SectionHeader title="Festival pillars" count="3 areas" />
+            <div className="grid grid-cols-12 gap-3">
+              <Tile className="col-span-12 sm:col-span-8 row-span-2">
+                <Link href="/submissions" className="flex flex-col h-full gap-4 group">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="rounded-xl p-1.5 bg-blue-100 text-blue-900">
+                        <Sparkles className="h-4 w-4" />
                       </div>
-                      <div className="text-xs text-slate-500 tabular-nums">
-                        {new Date(j.updated_at).toLocaleDateString()}
+                      <div className="text-[11px] uppercase tracking-[0.2em] font-semibold text-slate-700">
+                        Talent
                       </div>
                     </div>
-                  </li>
-                )
-              })}
-            </ul>
-          ) : (
-            <p className="text-sm text-slate-600 italic py-4">
-              No verdicts cast yet. Start judging to fill the timeline.
-            </p>
-          )}
-        </Tile>
+                    {trendThisWeek > 0 && (
+                      <div className="text-xs text-slate-600 inline-flex items-center gap-1">
+                        <TrendingUp className="h-3 w-3 text-emerald-600" />
+                        <span>+{trendThisWeek} this week</span>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-baseline gap-2">
+                      <div className="font-semibold text-5xl text-slate-900 tabular-nums leading-none">
+                        {totalSubmissions}
+                      </div>
+                      <div className="font-[family-name:var(--font-serif)] italic text-xl text-slate-700">
+                        submissions
+                      </div>
+                    </div>
+                    <div className="text-sm text-slate-600 mt-2">
+                      <span className="tabular-nums font-medium text-slate-800">{counts.act}</span> acts ·{" "}
+                      <span className="tabular-nums font-medium text-slate-800">{counts.volunteer}</span> vols ·{" "}
+                      <span className="tabular-nums font-medium text-slate-800">{counts.workshop}</span> wksps
+                    </div>
+                  </div>
+                  <div className="flex-1 flex items-end min-h-[64px]">
+                    <Sparkline
+                      values={submissionTrend}
+                      className="w-full h-16"
+                      stroke="#2340d9"
+                      fill="rgba(35,64,217,0.08)"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
+                    <span>{SPARK_DAYS} days ago</span>
+                    <span>today</span>
+                  </div>
+                </Link>
+              </Tile>
 
-        <Tile className="col-span-12 lg:col-span-4 bg-gradient-to-br from-blue-950 via-blue-900 to-[#2340d9] !border-transparent text-white">
-          <div className="flex flex-col h-full justify-between gap-5">
-            <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-blue-200">
-              Ticket goal
+              <Tile className="col-span-12 sm:col-span-4 !p-4">
+                <Link href="/settings" className="flex flex-col h-full gap-2">
+                  <PillarBody
+                    tone="slate"
+                    icon={<Users className="h-4 w-4" />}
+                    name="Ops"
+                    value={`${teamCount}`}
+                    unit={teamCount === 1 ? "member" : "members"}
+                    secondary="Allowlist on /settings"
+                  />
+                </Link>
+              </Tile>
+
+              <Tile className="col-span-12 sm:col-span-4 !p-4">
+                <Link href="/documents" className="flex flex-col h-full gap-2">
+                  <PillarBody
+                    tone="amber"
+                    icon={<FileText className="h-4 w-4" />}
+                    name="Documents"
+                    value={`${documentsTotal}`}
+                    unit={documentsTotal === 1 ? "file" : "files"}
+                    secondary="Shared team library"
+                  />
+                </Link>
+              </Tile>
             </div>
-            <div>
-              <div className="flex items-baseline gap-2">
-                <span className="font-mono font-semibold text-5xl tabular-nums leading-none">
-                  {STUBS.ticketSales}
-                </span>
-                <span className="font-[family-name:var(--font-serif)] italic text-xl text-blue-200">
-                  / {STUBS.ticketGoal}
-                </span>
+          </section>
+
+          {/* ACTIVITY + TICKET GOAL */}
+          <section className="grid grid-cols-12 gap-3">
+            <Tile className="col-span-12 sm:col-span-7">
+              <div className="flex items-baseline justify-between mb-4">
+                <h2 className="font-[family-name:var(--font-serif)] text-2xl text-blue-950">
+                  Team activity
+                </h2>
+                <Link
+                  href="/analysis"
+                  className="text-xs font-semibold text-[#2340d9] hover:underline"
+                >
+                  View all →
+                </Link>
               </div>
-              <div className="text-sm text-blue-200/90 mt-2">
-                tickets sold · not yet on sale
+              {recentJudgments && recentJudgments.length > 0 ? (
+                <ul className="divide-y divide-slate-200/60 text-sm -mx-1">
+                  {recentJudgments.map((j) => {
+                    const actorEmail = getActorEmail(j.profiles)
+                    const actor = actorEmail?.split("@")[0] ?? "someone"
+                    return (
+                      <li key={j.id} className="px-1 py-3 flex items-center gap-3">
+                        <span className={cn("h-2 w-2 rounded-full shrink-0", verdictDot(j.verdict))} />
+                        <div className="flex-1 min-w-0 flex items-center justify-between gap-3">
+                          <div className="truncate">
+                            <span className="font-semibold text-slate-900 capitalize">{actor}</span>{" "}
+                            <span className="text-slate-700">
+                              verdict · {j.verdict ?? "skip"}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500 tabular-nums">
+                            {new Date(j.updated_at).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-600 italic py-4">
+                  No verdicts cast yet. Start judging to fill the timeline.
+                </p>
+              )}
+            </Tile>
+
+            <Tile className="col-span-12 sm:col-span-5 bg-gradient-to-br from-blue-950 via-blue-900 to-[#2340d9] !border-transparent text-white">
+              <div className="flex flex-col h-full justify-between gap-5">
+                <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-blue-200">
+                  Ticket goal
+                </div>
+                <div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-mono font-semibold text-5xl tabular-nums leading-none">
+                      {TICKET_STUBS.ticketSales}
+                    </span>
+                    <span className="font-[family-name:var(--font-serif)] italic text-xl text-blue-200">
+                      / {TICKET_STUBS.ticketGoal}
+                    </span>
+                  </div>
+                  <div className="text-sm text-blue-200/90 mt-2">
+                    tickets sold · not yet on sale
+                  </div>
+                </div>
+                <div>
+                  <div className="h-1.5 rounded-full bg-white/15 overflow-hidden">
+                    <div
+                      className="h-full bg-white/70 rounded-full"
+                      style={{ width: `${Math.max(2, ticketPct)}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-blue-200/90 mt-2 inline-flex items-center gap-1">
+                    <span>On-sale target: {TICKET_STUBS.ticketOnSaleDate}</span>
+                    <ArrowUpRight className="h-3 w-3" />
+                  </div>
+                </div>
               </div>
-            </div>
-            <div>
-              <div className="h-1.5 rounded-full bg-white/15 overflow-hidden">
-                <div
-                  className="h-full bg-white/70 rounded-full"
-                  style={{ width: `${Math.max(2, ticketPct)}%` }}
-                />
-              </div>
-              <div className="text-xs text-blue-200/90 mt-2 inline-flex items-center gap-1">
-                <span>On-sale target: {STUBS.ticketOnSaleDate}</span>
-                <ArrowUpRight className="h-3 w-3" />
-              </div>
-            </div>
+            </Tile>
+          </section>
+        </div>
+
+        {/* RIGHT COL: notepad sticks while you scroll the rest */}
+        <aside className="col-span-12 lg:col-span-4 lg:h-full">
+          <div className="lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)]">
+            <Notepad
+              notes={noteRows}
+              authors={noteAuthors}
+              currentUserId={user!.id}
+            />
           </div>
-        </Tile>
-      </section>
+        </aside>
+      </div>
     </div>
   )
 }
@@ -492,61 +533,18 @@ function SectionHeader({ title, count }: { title: string; count: string }) {
 function Tile({
   children,
   className,
-  stub,
 }: {
   children: React.ReactNode
   className?: string
-  stub?: boolean
 }) {
   return (
     <div
       className={cn(
         "rounded-2xl border border-white/70 bg-white/65 backdrop-blur-xl p-5 shadow-[0_8px_28px_-18px_rgba(30,58,138,0.22)] transition hover:bg-white/80 relative",
-        stub && "opacity-95",
         className,
       )}
     >
-      {stub && (
-        <Badge
-          variant="outline"
-          className="absolute top-3 right-3 text-[10px] font-medium border-slate-300/60 text-slate-500"
-        >
-          stub
-        </Badge>
-      )}
       {children}
-    </div>
-  )
-}
-
-function ActionBlock({
-  tone,
-  icon,
-  kicker,
-  title,
-  subtitle,
-}: {
-  tone: "sky" | "rose"
-  icon: React.ReactNode
-  kicker: string
-  title: string
-  subtitle: string
-}) {
-  const toneBg = { sky: "bg-sky-100 text-sky-900", rose: "bg-rose-100 text-rose-900" }[tone]
-  return (
-    <div className="flex flex-col h-full justify-between gap-3">
-      <div className="flex items-center gap-2">
-        <div className={cn("rounded-xl p-1.5", toneBg)}>{icon}</div>
-        <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-slate-700">
-          {kicker}
-        </div>
-      </div>
-      <div>
-        <h3 className="font-[family-name:var(--font-serif)] text-xl text-blue-950 leading-tight">
-          {title}
-        </h3>
-        <p className="text-sm text-slate-600 mt-1">{subtitle}</p>
-      </div>
     </div>
   )
 }
@@ -559,7 +557,7 @@ function PillarBody({
   unit,
   secondary,
 }: {
-  tone: "sky" | "cyan" | "slate"
+  tone: "slate" | "amber"
   icon: React.ReactNode
   name: string
   value: string
@@ -567,9 +565,8 @@ function PillarBody({
   secondary: string
 }) {
   const toneBg = {
-    sky: "bg-sky-100 text-sky-900",
-    cyan: "bg-cyan-100 text-cyan-900",
     slate: "bg-slate-100 text-slate-900",
+    amber: "bg-amber-100 text-amber-900",
   }[tone]
   return (
     <div className="flex flex-col h-full gap-3">
