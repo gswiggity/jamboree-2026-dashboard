@@ -165,6 +165,51 @@ function parseFromHeader(raw: string | null): {
   return { name: trimmed || null, email: null }
 }
 
+// Pulls every email address out of a header value (To/Cc/Bcc can have many).
+// Handles "Name <addr>", "Quoted Name" <addr>, and bare addresses.
+function extractEmails(raw: string | null): string[] {
+  if (!raw) return []
+  const out: string[] = []
+  const angled = [...raw.matchAll(/<([^>]+)>/g)].map((m) => m[1])
+  const stripped = raw.replace(/<[^>]+>/g, " ")
+  const bare = [...stripped.matchAll(/[^\s,;<>"']+@[^\s,;<>"']+/g)].map((m) => m[0])
+  for (const e of [...angled, ...bare]) {
+    const trimmed = e.trim().toLowerCase()
+    if (trimmed.includes("@")) out.push(trimmed)
+  }
+  return out
+}
+
+// Normalize an email to a form that compares two addresses Gmail treats as
+// equivalent: strip +tag, lowercase, and for @gmail.com / @googlemail.com
+// also drop dots in the local part. Returns null for malformed input.
+function canonicalEmail(raw: string): string | null {
+  const trimmed = raw.trim().toLowerCase()
+  const at = trimmed.lastIndexOf("@")
+  if (at <= 0 || at >= trimmed.length - 1) return null
+  let local = trimmed.slice(0, at)
+  let domain = trimmed.slice(at + 1)
+  const plus = local.indexOf("+")
+  if (plus >= 0) local = local.slice(0, plus)
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    local = local.replace(/\./g, "")
+    domain = "gmail.com"
+  }
+  if (!local) return null
+  return `${local}@${domain}`
+}
+
+function messageInvolves(msg: GmailMessage, targetCanon: string): boolean {
+  const headers = msg.payload?.headers
+  for (const name of ["From", "To", "Cc", "Bcc"] as const) {
+    const value = header(headers, name)
+    for (const addr of extractEmails(value)) {
+      if (canonicalEmail(addr) === targetCanon) return true
+    }
+  }
+  return false
+}
+
 async function gmailFetch<T>(
   accessToken: string,
   path: string,
@@ -186,10 +231,12 @@ async function gmailFetch<T>(
 }
 
 export function buildEmailQuery(email: string): string {
-  // Match anywhere this address appears on a message — sender or recipient
-  // (To / CC / BCC). BCC only resolves in the Sent folder since it's stripped
-  // from received headers, which is exactly what we want.
-  return `from:${email} OR to:${email} OR cc:${email} OR bcc:${email}`
+  // Quoting forces Gmail to phrase-match the address rather than tokenizing it
+  // (which silently matches partial local parts). `to:` already covers Cc/Bcc
+  // on Gmail's side, so we don't repeat the operator. Trash/spam/chats are
+  // excluded — they're never what we want here.
+  const e = email.trim().toLowerCase()
+  return `(from:"${e}" OR to:"${e}") -in:trash -in:spam -in:chats`
 }
 
 export async function searchThreadsByEmail(
@@ -197,6 +244,8 @@ export async function searchThreadsByEmail(
   email: string,
   maxResults = 20,
 ): Promise<GmailThreadSummary[]> {
+  const target = canonicalEmail(email)
+  if (!target) return []
   const q = buildEmailQuery(email)
   const list = await gmailFetch<{ threads?: { id: string }[] }>(
     accessToken,
@@ -209,7 +258,7 @@ export async function searchThreadsByEmail(
     threadIds.map((id) =>
       gmailFetch<GmailThread>(
         accessToken,
-        `/users/me/threads/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+        `/users/me/threads/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Bcc&metadataHeaders=Subject&metadataHeaders=Date`,
       ).catch((): GmailThread | null => null),
     ),
   )
@@ -217,19 +266,24 @@ export async function searchThreadsByEmail(
   const summaries: GmailThreadSummary[] = []
   for (const t of threads) {
     if (!t || !t.messages || t.messages.length === 0) continue
-    const last = t.messages[t.messages.length - 1]
-    const subject = header(last.payload?.headers, "Subject") ?? "(no subject)"
+    // Verify the target actually appears in a header; Gmail's search can
+    // surface threads that don't truly involve the address (substring
+    // matches, plus-tag aliases on non-Gmail domains, etc.).
+    const matching = t.messages.filter((m) => messageInvolves(m, target))
+    if (matching.length === 0) continue
+    const display = matching[matching.length - 1]
+    const subject = header(display.payload?.headers, "Subject") ?? "(no subject)"
     const { name, email: fromEmail } = parseFromHeader(
-      header(last.payload?.headers, "From"),
+      header(display.payload?.headers, "From"),
     )
-    const internal = last.internalDate ? Number(last.internalDate) : null
-    const unread = (last.labelIds ?? []).includes("UNREAD")
+    const internal = display.internalDate ? Number(display.internalDate) : null
+    const unread = t.messages.some((m) => (m.labelIds ?? []).includes("UNREAD"))
     summaries.push({
       id: t.id,
       subject,
       fromName: name,
       fromEmail,
-      snippet: last.snippet ?? "",
+      snippet: display.snippet ?? "",
       lastDate: internal,
       messageCount: t.messages.length,
       unread,
