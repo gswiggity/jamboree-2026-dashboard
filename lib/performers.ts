@@ -216,15 +216,15 @@ export function aggregatePerformers(subs: SubmissionLite[]): Performer[] {
     const rawTitle = (s.name ?? "").trim()
     const titleSubstituted = !rawTitle || isPlaceholderActTitle(rawTitle)
     const titleEmail = s.email?.trim() ?? ""
-    // `names` was just parsed above from the Performers field. First entry
-    // is typically the full first + last name when the act is solo.
+    const names = parsePerformersField(performersRaw)
+    // First entry of `names` is typically the full first + last name when
+    // the act is solo, so prefer it over the partial primary contact name.
     const titleFirstMember = names[0]?.trim() ?? ""
     const title = titleSubstituted
       ? titleFirstMember || primaryName.trim() || titleEmail || "Solo performer"
       : rawTitle
     const originalTitle = titleSubstituted && rawTitle ? rawTitle : null
 
-    const names = parsePerformersField(performersRaw)
     const seenOnThisSub = new Set<string>()
     for (const rawName of names) {
       const norm = normalizeName(rawName)
