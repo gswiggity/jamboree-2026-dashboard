@@ -30,6 +30,54 @@ export async function saveJudgment(
 
   revalidatePath(`/submissions/${submissionId}`)
   revalidatePath("/submissions")
+  revalidatePath("/performers")
+  revalidatePath("/lineup")
+  revalidatePath("/dashboard")
+  revalidatePath("/analysis")
+  return { ok: true }
+}
+
+// Verdict-only update used by the inline Y/M/N pills across talent pages.
+// Preserves any existing notes — a separate code path from saveJudgment so
+// quick votes don't clobber what someone has typed on the detail page.
+export async function setVerdict(
+  submissionId: string,
+  verdict: "yes" | "no" | "maybe" | null,
+): Promise<ActionResult> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Not authenticated." }
+
+  const { data: existing } = await supabase
+    .from("judgments")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .eq("submission_id", submissionId)
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await supabase
+      .from("judgments")
+      .update({ verdict })
+      .eq("user_id", user.id)
+      .eq("submission_id", submissionId)
+    if (error) return { ok: false, error: error.message }
+  } else {
+    const { error } = await supabase.from("judgments").insert({
+      user_id: user.id,
+      submission_id: submissionId,
+      verdict,
+      notes: "",
+    })
+    if (error) return { ok: false, error: error.message }
+  }
+
+  revalidatePath(`/submissions/${submissionId}`)
+  revalidatePath("/submissions")
+  revalidatePath("/performers")
+  revalidatePath("/lineup")
   revalidatePath("/dashboard")
   revalidatePath("/analysis")
   return { ok: true }

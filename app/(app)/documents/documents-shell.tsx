@@ -56,6 +56,11 @@ export type DocumentRow = {
   // Short-lived signed URL for inline preview (images only). Null for
   // non-previewable types or if the sign call failed.
   preview_url: string | null
+  // When the document is a performer photo (or any submission-linked file),
+  // these surface a "linked to <act name>" badge so the documents view
+  // doubles as a marketing-asset rolodex.
+  submission_id: string | null
+  submission_display_name: string | null
 }
 
 type ViewMode = "list" | "grid"
@@ -415,6 +420,15 @@ function DocumentCard({
             <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-700 capitalize">
               {doc.category}
             </span>
+            {doc.submission_id && doc.submission_display_name && (
+              <a
+                href={`/submissions/${doc.submission_id}`}
+                className="inline-flex items-center gap-1 rounded-full bg-violet-50 text-violet-900 border border-violet-100 px-2 py-0.5 font-medium hover:bg-violet-100 transition"
+                title="Open the submission this is linked to"
+              >
+                Linked: {doc.submission_display_name}
+              </a>
+            )}
             <span className="tabular-nums">{formatBytes(doc.size_bytes)}</span>
             <span>· uploaded by {uploader}</span>
             <span>· {new Date(doc.created_at).toLocaleDateString()}</span>
@@ -548,6 +562,15 @@ function DocumentTile({
         <div className="text-xs text-slate-500 truncate" title={doc.file_name}>
           {doc.file_name}
         </div>
+        {doc.submission_id && doc.submission_display_name && (
+          <a
+            href={`/submissions/${doc.submission_id}`}
+            className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-50 text-violet-900 border border-violet-100 px-2 py-0.5 text-[10px] font-semibold hover:bg-violet-100 transition w-fit max-w-full truncate"
+            title={`Linked to ${doc.submission_display_name}`}
+          >
+            <span className="truncate">Linked: {doc.submission_display_name}</span>
+          </a>
+        )}
         <div className="mt-auto pt-2 text-xs text-slate-500 flex items-center justify-between gap-2">
           <span className="tabular-nums">{formatBytes(doc.size_bytes)}</span>
           <span>{new Date(doc.created_at).toLocaleDateString()}</span>

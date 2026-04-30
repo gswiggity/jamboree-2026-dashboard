@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { ArrowLeft, CheckCircle2, Inbox, Mic2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { SUBMISSION_TYPES, TYPE_LABELS, type SubmissionType } from "@/lib/csv"
+import { getActDisplayName } from "@/lib/solo-act"
 import { toEmbedUrl, looksLikeUrl } from "@/lib/video"
 import { cn } from "@/lib/utils"
 import { JudgingCockpit, type TeamJudgment } from "./judging-cockpit"
@@ -203,11 +204,20 @@ export default async function JudgePage({
     }
   })
 
+  const submissionDisplay =
+    submission.type === "act"
+      ? getActDisplayName({
+          name: submission.name,
+          data: (submission.data as Record<string, unknown> | null) ?? null,
+          email: submission.email,
+        })
+      : { display: submission.name ?? "(no name)", substituted: false, original: submission.name }
+
   return (
     <JudgingCockpit
       submission={{
         id: submission.id,
-        name: submission.name ?? "(no name)",
+        name: submissionDisplay.display,
         email: submission.email ?? null,
         submittedAt: submission.submitted_at,
       }}

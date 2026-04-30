@@ -28,6 +28,7 @@ export async function createDocument(input: {
   size_bytes: number
   category: string
   description: string
+  submission_id?: string | null
 }): Promise<ActionResult<{ id: string }>> {
   const { supabase, user } = await requireUser()
   if (!user) return { ok: false, error: "Not authenticated." }
@@ -46,6 +47,7 @@ export async function createDocument(input: {
       category: trimmedCategory,
       description: input.description.trim(),
       uploaded_by: user.id,
+      submission_id: input.submission_id ?? null,
     })
     .select("id")
     .single()
@@ -59,6 +61,10 @@ export async function createDocument(input: {
 
   revalidatePath("/documents")
   revalidatePath("/dashboard")
+  if (input.submission_id) {
+    revalidatePath(`/submissions/${input.submission_id}`)
+    revalidatePath("/performers")
+  }
   return { ok: true, data: { id: data.id } }
 }
 
@@ -91,7 +97,7 @@ export async function deleteDocument(id: string): Promise<ActionResult> {
 
   const { data: doc, error: fetchError } = await supabase
     .from("documents")
-    .select("storage_path")
+    .select("storage_path, submission_id")
     .eq("id", id)
     .single()
 
@@ -114,6 +120,10 @@ export async function deleteDocument(id: string): Promise<ActionResult> {
 
   revalidatePath("/documents")
   revalidatePath("/dashboard")
+  if (doc.submission_id) {
+    revalidatePath(`/submissions/${doc.submission_id}`)
+    revalidatePath("/performers")
+  }
   return { ok: true, data: null }
 }
 

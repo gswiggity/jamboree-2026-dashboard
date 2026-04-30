@@ -4,6 +4,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { buttonVariants } from "@/components/ui/button"
+import { getActDisplayName } from "@/lib/solo-act"
 import { cn } from "@/lib/utils"
 import { FESTIVAL_DAYS } from "../../festival"
 import { BlockProgrammingShell } from "./shell"
@@ -120,17 +121,24 @@ export default async function BlockProgrammingPage({
         .order("name", { ascending: true })
     : { data: [] }
 
-  const allSubs = (subsRaw ?? []).map((s) => ({
-    id: s.id,
-    type: s.type,
-    name: s.name,
-    email: s.email,
-    data:
+  const allSubs = (subsRaw ?? []).map((s) => {
+    const data =
       s.data && typeof s.data === "object" && !Array.isArray(s.data)
         ? (s.data as Record<string, unknown>)
-        : null,
-    supplemental_video_url: s.supplemental_video_url,
-  }))
+        : null
+    const display =
+      s.type === "act"
+        ? getActDisplayName({ name: s.name, data, email: s.email }).display
+        : s.name
+    return {
+      id: s.id,
+      type: s.type,
+      name: display,
+      email: s.email,
+      data,
+      supplemental_video_url: s.supplemental_video_url,
+    }
+  })
 
   // Fetch every team judgment for the union of acts shown on this page,
   // joined with author profiles for display.

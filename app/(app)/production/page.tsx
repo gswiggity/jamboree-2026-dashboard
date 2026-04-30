@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent } from "@/components/ui/card"
+import { getActDisplayName } from "@/lib/solo-act"
 import { DraftsShell } from "./drafts-shell"
 import { ScheduleCanvas } from "./schedule-canvas"
 
@@ -139,16 +140,23 @@ export default async function ProductionPage({
           drafts={drafts}
           selectedDraft={visibleDraft}
           blocks={blocks ?? []}
-          eligibleSubmissions={(eligibleSubs ?? []).map((s) => ({
-            id: s.id,
-            type: s.type,
-            name: s.name,
-            email: s.email,
-            data:
+          eligibleSubmissions={(eligibleSubs ?? []).map((s) => {
+            const data =
               s.data && typeof s.data === "object" && !Array.isArray(s.data)
                 ? (s.data as Record<string, unknown>)
-                : null,
-          }))}
+                : null
+            const display =
+              s.type === "act"
+                ? getActDisplayName({ name: s.name, data, email: s.email }).display
+                : s.name
+            return {
+              id: s.id,
+              type: s.type,
+              name: display,
+              email: s.email,
+              data,
+            }
+          })}
           tagsByBlock={tagsByBlockObj}
           commentsByBlock={commentsByBlock}
           currentUserId={user.id}
@@ -163,16 +171,23 @@ export default async function ProductionPage({
           venueColors={visibleDraft.venue_colors}
           windowStartTime={visibleDraft.window_start_time}
           windowEndTime={visibleDraft.window_end_time}
-          eligibleSubmissions={(eligibleSubs ?? []).map((s) => ({
-            id: s.id,
-            type: s.type,
-            name: s.name,
-            email: s.email,
-            data:
+          eligibleSubmissions={(eligibleSubs ?? []).map((s) => {
+            const data =
               s.data && typeof s.data === "object" && !Array.isArray(s.data)
                 ? (s.data as Record<string, unknown>)
-                : null,
-          }))}
+                : null
+            const display =
+              s.type === "act"
+                ? getActDisplayName({ name: s.name, data, email: s.email }).display
+                : s.name
+            return {
+              id: s.id,
+              type: s.type,
+              name: display,
+              email: s.email,
+              data,
+            }
+          })}
           tagsByBlock={tagsByBlockObj}
           commentsByBlock={commentsByBlock}
           currentUserId={user.id}

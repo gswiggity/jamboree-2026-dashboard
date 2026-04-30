@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { getActDisplayName } from "@/lib/solo-act"
 import { DocumentsShell, type DocumentRow } from "./documents-shell"
 import { DOCUMENTS_BUCKET } from "./constants"
 
@@ -8,6 +9,7 @@ const STARTER_CATEGORIES = [
   "marketing",
   "invoice",
   "logistics",
+  "performer-photo",
   "other",
 ]
 
@@ -27,11 +29,40 @@ export default async function DocumentsPage() {
     supabase
       .from("documents")
       .select(
-        "id, name, file_name, storage_path, mime_type, size_bytes, category, description, uploaded_by, created_at, updated_at",
+        "id, name, file_name, storage_path, mime_type, size_bytes, category, description, uploaded_by, submission_id, created_at, updated_at",
       )
       .order("created_at", { ascending: false }),
     supabase.from("profiles").select("id, full_name, email"),
   ])
+
+  // Fetch the submissions referenced by any documents so we can show a
+  // "linked to: <act name>" badge with the substituted display name.
+  const submissionIds = Array.from(
+    new Set(
+      (documents ?? [])
+        .map((d) => d.submission_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  )
+  const { data: linkedSubs } =
+    submissionIds.length > 0
+      ? await supabase
+          .from("submissions")
+          .select("id, type, name, data")
+          .in("id", submissionIds)
+      : { data: [] as Array<{ id: string; type: string; name: string | null; data: unknown }> }
+  const submissionById = new Map(
+    (linkedSubs ?? []).map((s) => {
+      const display =
+        s.type === "act"
+          ? getActDisplayName({
+              name: s.name,
+              data: (s.data as Record<string, unknown> | null) ?? null,
+            }).display
+          : s.name ?? "(untitled)"
+      return [s.id, { id: s.id, type: s.type, displayName: display }] as const
+    }),
+  )
 
   const profileById = new Map(
     (profiles ?? []).map((p) => [
@@ -57,6 +88,7 @@ export default async function DocumentsPage() {
 
   const rows: DocumentRow[] = (documents ?? []).map((d) => {
     const uploader = d.uploaded_by ? profileById.get(d.uploaded_by) : null
+    const linked = d.submission_id ? submissionById.get(d.submission_id) : null
     return {
       id: d.id,
       name: d.name,
@@ -71,6 +103,8 @@ export default async function DocumentsPage() {
       uploader_name: uploader?.name ?? null,
       uploader_email: uploader?.email ?? null,
       preview_url: previewByPath.get(d.storage_path) ?? null,
+      submission_id: d.submission_id ?? null,
+      submission_display_name: linked?.displayName ?? null,
     }
   })
 

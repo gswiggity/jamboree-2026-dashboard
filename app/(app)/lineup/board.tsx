@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { InlineVerdict, type Verdict } from "@/components/inline-verdict"
 import {
   createColumn,
   deleteColumn,
@@ -42,7 +43,7 @@ export type BoardColumn = {
 }
 
 
-export type Tier = "locked" | "likely" | "bubble"
+export type Tier = "locked" | "likely" | "maybe" | "bubble"
 
 export type BoardCard = {
   id: string
@@ -50,13 +51,17 @@ export type BoardCard = {
   columnId: string | null
   position: number
   name: string
+  nameWasSubstituted: boolean
+  originalName: string | null
   typeLabel: string
   submitter: string | null
   members: string[]
+  isSolo: boolean
   setLengthMinutes: number | null
   tags: string[]
   tier: Tier | null
   counts: { yes_count: number; no_count: number; maybe_count: number }
+  myVerdict: Verdict | null
 }
 
 const UNSORTED_ID = "__unsorted__"
@@ -64,12 +69,14 @@ const UNSORTED_ID = "__unsorted__"
 const TIER_DOT: Record<Tier, string> = {
   locked: "bg-emerald-500",
   likely: "bg-sky-500",
+  maybe: "bg-slate-400",
   bubble: "bg-amber-500",
 }
 
 const TIER_LABEL: Record<Tier, string> = {
-  locked: "Locked",
+  locked: "Team yes",
   likely: "Likely",
+  maybe: "Maybe",
   bubble: "Bubble",
 }
 
@@ -99,8 +106,9 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 const TIER_RANK: Record<Tier | "none", number> = {
   locked: 0,
   likely: 1,
-  bubble: 2,
-  none: 3,
+  maybe: 2,
+  bubble: 3,
+  none: 4,
 }
 
 function compareCards(a: BoardCard, b: BoardCard, key: SortKey): number {
@@ -804,7 +812,14 @@ function StickyCard({
         </span>
       )}
 
-      <div className="font-semibold text-sm text-slate-900 leading-snug pr-16 break-words">
+      <div
+        className="font-semibold text-sm text-slate-900 leading-snug pr-16 break-words"
+        title={
+          card.nameWasSubstituted && card.originalName
+            ? `Group name was "${card.originalName}"`
+            : undefined
+        }
+      >
         {card.name}
       </div>
 
@@ -812,7 +827,15 @@ function StickyCard({
         {card.typeLabel}
       </div>
 
-      {card.submitter && (
+      {card.isSolo && card.submitter && (
+        <div className="mt-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 text-violet-900 border border-violet-100 px-1.5 py-0.5 text-[10px] font-semibold">
+            Solo · {card.submitter}
+          </span>
+        </div>
+      )}
+
+      {!card.isSolo && card.submitter && (
         <div className="text-[11px] text-slate-700 mt-1.5 truncate">
           <span className="text-slate-500">Submitted by</span>{" "}
           <span className="font-medium">{card.submitter}</span>
@@ -839,6 +862,17 @@ function StickyCard({
         tags={card.tags}
         onCommit={(tags) => onSetTags(card.id, tags)}
       />
+
+      <div className="mt-2 pt-2 border-t border-white/60 flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-slate-500">
+          My vote
+        </span>
+        <InlineVerdict
+          submissionId={card.submissionId}
+          initialVerdict={card.myVerdict}
+          size="sm"
+        />
+      </div>
     </div>
   )
 }

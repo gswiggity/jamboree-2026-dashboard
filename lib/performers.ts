@@ -18,13 +18,24 @@ export type SubmissionLite = {
 export type PerformerAppearance = {
   submissionId: string
   submissionType: "act" | "workshop"
-  submissionTitle: string // group name or workshop title
+  submissionTitle: string // group name or workshop title (with "Self" placeholders substituted)
+  // The literal group name as submitted, when it differs from the displayed
+  // title — e.g. "Self". Useful for tooltips / "listed as" chips. Null when
+  // no substitution happened.
+  originalTitle: string | null
   submittedAt: string | null
   // How this person is attached to the submission.
   //  - "primary"   → they're the primary contact on an act
   //  - "member"    → they're named in the Performers text field of an act
   //  - "submitter" → they submitted a workshop
   role: "primary" | "member" | "submitter"
+  // Primary contact name on the act — used to surface "Solo · <name>" chips
+  // when the act is a one-person team. Always set for acts; null for
+  // workshops where it doesn't apply.
+  submitterName: string | null
+  // True for acts where nobody besides the primary contact is named in
+  // the Performers field. Workshops are always false.
+  isSolo: boolean
 }
 
 export type Performer = {
@@ -127,7 +138,7 @@ export function aggregatePerformers(subs: SubmissionLite[]): Performer[] {
     if (s.type !== "act" && s.type !== "workshop") continue
     const email = s.email?.trim().toLowerCase() || null
     const data = s.data ?? {}
-    const title = (s.name ?? "").trim() || "(untitled)"
+    const rawTitle = (s.name ?? "").trim()
 
     if (s.type === "workshop" && email) {
       const nameRaw = pickString(data, ["Name"]) ?? ""
@@ -144,17 +155,34 @@ export function aggregatePerformers(subs: SubmissionLite[]): Performer[] {
         {
           submissionId: s.id,
           submissionType: "workshop",
-          submissionTitle: title,
+          submissionTitle: rawTitle || "(untitled)",
+          originalTitle: null,
           submittedAt: s.submitted_at,
           role: "submitter",
+          submitterName: null,
+          isSolo: false,
         },
       )
     }
 
     if (s.type === "act" && email) {
-      const primaryName = pickString(data, ["Primary Contact 11", "Primary Contact Name"]) ?? ""
+      const primaryName =
+        pickString(data, ["Primary Contact 11", "Primary Contact Name"]) ?? ""
       const displayName = primaryName.trim() || email
       const key = `email:${email}`
+      const memberCount = countActMembers(data, primaryName)
+      // Substitute "Self"-style placeholders with a real identifier. Prefer
+      // the first name from the Performers field (it usually has the full
+      // first + last), fall back to primary contact, then email, then a
+      // generic label.
+      const titleSubstituted =
+        !rawTitle || isPlaceholderActTitle(rawTitle)
+      const titleFirstMember = parsePerformersField(
+        pickString(data, ["Performers"]) ?? "",
+      )[0]?.trim() ?? ""
+      const actTitle = titleSubstituted
+        ? titleFirstMember || primaryName.trim() || email || "Solo performer"
+        : rawTitle
       upsert(
         key,
         () => ({
@@ -166,9 +194,12 @@ export function aggregatePerformers(subs: SubmissionLite[]): Performer[] {
         {
           submissionId: s.id,
           submissionType: "act",
-          submissionTitle: title,
+          submissionTitle: actTitle,
+          originalTitle: titleSubstituted && rawTitle ? rawTitle : null,
           submittedAt: s.submitted_at,
           role: "primary",
+          submitterName: primaryName.trim() || null,
+          isSolo: memberCount === 0,
         },
       )
     }
@@ -182,7 +213,16 @@ export function aggregatePerformers(subs: SubmissionLite[]): Performer[] {
     if (!performersRaw) continue
     const primaryName = pickString(data, ["Primary Contact 11", "Primary Contact Name"]) ?? ""
     const primaryNorm = primaryName ? normalizeName(primaryName) : ""
-    const title = (s.name ?? "").trim() || "(untitled)"
+    const rawTitle = (s.name ?? "").trim()
+    const titleSubstituted = !rawTitle || isPlaceholderActTitle(rawTitle)
+    const titleEmail = s.email?.trim() ?? ""
+    // `names` was just parsed above from the Performers field. First entry
+    // is typically the full first + last name when the act is solo.
+    const titleFirstMember = names[0]?.trim() ?? ""
+    const title = titleSubstituted
+      ? titleFirstMember || primaryName.trim() || titleEmail || "Solo performer"
+      : rawTitle
+    const originalTitle = titleSubstituted && rawTitle ? rawTitle : null
 
     const names = parsePerformersField(performersRaw)
     const seenOnThisSub = new Set<string>()
@@ -211,8 +251,13 @@ export function aggregatePerformers(subs: SubmissionLite[]): Performer[] {
           submissionId: s.id,
           submissionType: "act",
           submissionTitle: title,
+          originalTitle,
           submittedAt: s.submitted_at,
           role: "member",
+          submitterName: primaryName.trim() || null,
+          // A "member" appearance proves the act has at least one teammate
+          // beyond the primary, so it's never solo.
+          isSolo: false,
         },
       )
     }
@@ -230,6 +275,71 @@ function pickString(
     if (typeof v === "string" && v.trim()) return v
   }
   return null
+}
+
+// Mirror of isPlaceholderActName in solo-act.ts. Duplicated here to avoid a
+// circular import (solo-act already depends on this module). Keep the two
+// in sync if either set changes.
+const PLACEHOLDER_TITLES = new Set([
+  "self",
+  "myself",
+  "me",
+  "just me",
+  "only me",
+  "solo",
+  "solo act",
+  "solo show",
+  "solo performance",
+  "one person",
+  "one person show",
+  "one person team",
+  "one man show",
+  "one woman show",
+  "single",
+  "individual",
+  "n/a",
+  "na",
+  "none",
+  "no name",
+  "untitled",
+  "tbd",
+  "tba",
+  "-",
+  "--",
+  "---",
+  ".",
+  "?",
+  "x",
+])
+function isPlaceholderActTitle(name: string): boolean {
+  const canonical = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s/]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  if (!canonical) return true
+  if (PLACEHOLDER_TITLES.has(canonical)) return true
+  if (canonical === "n a") return true
+  return false
+}
+
+// Count distinct teammates listed on an act, excluding the primary contact.
+// Zero means a solo act.
+function countActMembers(
+  data: Record<string, unknown>,
+  primaryName: string,
+): number {
+  const performersRaw = pickString(data, ["Performers"]) ?? ""
+  if (!performersRaw) return 0
+  const primaryNorm = primaryName ? normalizeName(primaryName) : ""
+  const seen = new Set<string>()
+  for (const raw of parsePerformersField(performersRaw)) {
+    const norm = normalizeName(raw)
+    if (!norm || norm === primaryNorm) continue
+    seen.add(norm)
+  }
+  return seen.size
 }
 
 export type PerformerSortKey = "submissions" | "name"
@@ -254,6 +364,7 @@ export function sortPerformers(
 
 export type PerformerFilterKey =
   | "all"
+  | "team_yes" // at least one appearance with locked-tier team consensus
   | "cross" // at least one act AND at least one workshop
   | "multiAct" // 2+ act appearances
   | "workshopsOnly"
@@ -262,8 +373,17 @@ export type PerformerFilterKey =
 export function applyPerformerFilter(
   performers: Performer[],
   filter: PerformerFilterKey,
+  // Set of submission IDs the team has reached "locked" consensus on.
+  // Required for the team_yes filter; ignored otherwise.
+  teamYesSubmissionIds?: Set<string>,
 ): Performer[] {
   switch (filter) {
+    case "team_yes": {
+      const yesSet = teamYesSubmissionIds ?? new Set<string>()
+      return performers.filter((p) =>
+        p.appearances.some((a) => yesSet.has(a.submissionId)),
+      )
+    }
     case "cross":
       return performers.filter((p) => p.actCount > 0 && p.workshopCount > 0)
     case "multiAct":

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { SUBMISSION_TYPES, TYPE_LABELS, type SubmissionType } from "@/lib/csv"
+import { getActDisplayName } from "@/lib/solo-act"
 import {
   overviewTimeline,
   summarizeActs,
@@ -22,15 +23,22 @@ export default async function AnalysisPage() {
       .select("submission_id, type, yes_count, no_count, maybe_count, total_judgments"),
   ])
 
-  const rows = (submissions ?? []).map((s) => ({
-    id: s.id,
-    type: s.type as SubmissionType,
-    name: s.name,
-    email: s.email,
-    submitted_at: s.submitted_at,
-    created_at: s.created_at,
-    data: (s.data ?? {}) as Record<string, unknown>,
-  })) as SubmissionRow[]
+  const rows = (submissions ?? []).map((s) => {
+    const data = (s.data ?? {}) as Record<string, unknown>
+    const displayName =
+      s.type === "act"
+        ? getActDisplayName({ name: s.name, data, email: s.email }).display
+        : s.name
+    return {
+      id: s.id,
+      type: s.type as SubmissionType,
+      name: displayName,
+      email: s.email,
+      submitted_at: s.submitted_at,
+      created_at: s.created_at,
+      data,
+    }
+  }) as SubmissionRow[]
 
   const totalByType = SUBMISSION_TYPES.map((type) => ({
     type,

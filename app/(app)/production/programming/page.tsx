@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { buttonVariants } from "@/components/ui/button"
 import { ArrowRightIcon, ClockIcon, MapPinIcon, MicIcon, SparklesIcon, UsersIcon } from "lucide-react"
+import { getActDisplayName } from "@/lib/solo-act"
 import { FESTIVAL_DAYS } from "../festival"
 import { DraftPicker } from "./draft-picker"
 
@@ -87,11 +88,26 @@ export default async function ProgrammingIndexPage({
   const { data: subs } = subIds.length > 0
     ? await supabase
         .from("submissions")
-        .select("id, type, name")
+        .select("id, type, name, email, data")
         .in("id", subIds)
         .is("deleted_at", null)
     : { data: [] }
-  const subById = new Map((subs ?? []).map((s) => [s.id, s]))
+  const subById = new Map(
+    (subs ?? []).map((s) => {
+      const display =
+        s.type === "act"
+          ? getActDisplayName({
+              name: s.name,
+              data: (s.data as Record<string, unknown> | null) ?? null,
+              email: s.email,
+            })
+          : { display: s.name ?? "Untitled", substituted: false, original: s.name }
+      return [
+        s.id,
+        { id: s.id, type: s.type, name: display.display },
+      ]
+    }),
+  )
 
   const tagsByBlock = new Map<
     string,

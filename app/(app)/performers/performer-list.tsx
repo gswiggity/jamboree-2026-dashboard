@@ -11,6 +11,8 @@ import {
   type PerformerFilterKey,
   type PerformerSortKey,
 } from "@/lib/performers"
+import { classify } from "@/lib/lineup-tiers"
+import { InlineVerdict, type Verdict } from "@/components/inline-verdict"
 import { cn } from "@/lib/utils"
 import { PerformerScenarios } from "./performer-scenarios"
 
@@ -28,20 +30,9 @@ export type VerdictCountRow = {
   total_judgments: number | null
 }
 
-const VERDICT_PILL: Record<string, string> = {
-  yes: "bg-emerald-100 text-emerald-900 border-emerald-200/80",
-  no: "bg-rose-100 text-rose-900 border-rose-200/80",
-  maybe: "bg-amber-100 text-amber-900 border-amber-200/80",
-}
-
-const VERDICT_LABEL: Record<string, string> = {
-  yes: "Yes",
-  maybe: "Maybe",
-  no: "No",
-}
-
 const FILTERS: Array<{ key: PerformerFilterKey; label: string }> = [
   { key: "all", label: "All" },
+  { key: "team_yes", label: "Team yes" },
   { key: "cross", label: "Cross-submitter" },
   { key: "multiAct", label: "On multiple acts" },
   { key: "actsOnly", label: "Acts only" },
@@ -87,30 +78,48 @@ export function PerformerList({
     [verdictCounts],
   )
 
+  // Submission IDs that have reached "locked" team-yes consensus.
+  const teamYesIds = useMemo(() => {
+    const set = new Set<string>()
+    for (const c of verdictCounts) {
+      if (!c.submission_id) continue
+      const tier = classify({
+        yes_count: c.yes_count ?? 0,
+        no_count: c.no_count ?? 0,
+        maybe_count: c.maybe_count ?? 0,
+        total_judgments: c.total_judgments ?? 0,
+      })
+      if (tier === "locked") set.add(c.submission_id)
+    }
+    return set
+  }, [verdictCounts])
+
   // Filter counts (for the chip numbers) — always computed off the unfiltered
   // list, not the post-search list, so the numbers stay stable as you type.
   const filterCounts = useMemo(() => {
     const out: Record<PerformerFilterKey, number> = {
       all: performers.length,
+      team_yes: 0,
       cross: 0,
       multiAct: 0,
       workshopsOnly: 0,
       actsOnly: 0,
     }
     for (const p of performers) {
+      if (p.appearances.some((a) => teamYesIds.has(a.submissionId))) out.team_yes++
       if (p.actCount > 0 && p.workshopCount > 0) out.cross++
       if (p.actCount >= 2) out.multiAct++
       if (p.workshopCount > 0 && p.actCount === 0) out.workshopsOnly++
       if (p.actCount > 0 && p.workshopCount === 0) out.actsOnly++
     }
     return out
-  }, [performers])
+  }, [performers, teamYesIds])
 
   const visible = useMemo(() => {
-    const filtered = applyPerformerFilter(performers, filter)
+    const filtered = applyPerformerFilter(performers, filter, teamYesIds)
     const searched = filterPerformersByQuery(filtered, q)
     return sortPerformers(searched, sort)
-  }, [performers, filter, sort, q])
+  }, [performers, filter, sort, q, teamYesIds])
 
   // Roll up a quick top-line count: how many total submissions are covered
   // by the currently-visible people.
@@ -409,15 +418,39 @@ function AppearanceRow({
       : appearance.role === "submitter"
       ? "submitter"
       : "teammate"
-  const myVerdict = my?.verdict ?? null
+  const myVerdictRaw = my?.verdict ?? null
+  const myVerdict: Verdict | null =
+    myVerdictRaw === "yes" || myVerdictRaw === "no" || myVerdictRaw === "maybe"
+      ? myVerdictRaw
+      : null
   const myNotes = my?.notes?.trim() ?? ""
+  const tier = counts
+    ? classify({
+        yes_count: counts.yes_count ?? 0,
+        no_count: counts.no_count ?? 0,
+        maybe_count: counts.maybe_count ?? 0,
+        total_judgments: counts.total_judgments ?? 0,
+      })
+    : null
+  // Solo chip is most useful when *this row's performer* IS the submitter —
+  // showing "Solo · Maria" inside Maria's own card would just repeat her
+  // name. So suppress it on the primary/submitter row and only render it on
+  // teammate rows that point back at someone else's solo act (which can't
+  // happen by definition, since solo acts have no teammates) — i.e. it
+  // shows up on no rows of solo acts, which defeats the purpose.
+  // Solution: show it on the primary row but not when the displayed
+  // performer name already matches the submitter.
+  const showSolo =
+    appearance.isSolo &&
+    appearance.submitterName &&
+    appearance.role === "primary"
   return (
-    <Link
-      href={`/submissions/${appearance.submissionId}`}
-      className="block px-5 py-3 hover:bg-white/80 transition group"
-    >
+    <div className="block px-5 py-3 hover:bg-white/80 transition group">
       <div className="flex items-center gap-4">
-        <div className="flex-1 min-w-0">
+        <Link
+          href={`/submissions/${appearance.submissionId}`}
+          className="flex-1 min-w-0 block"
+        >
           <div className="flex items-center gap-2 flex-wrap">
             <span
               className={cn(
@@ -435,19 +468,38 @@ function AppearanceRow({
                 mutedLink ? "text-slate-700" : "text-slate-900",
                 "group-hover:text-blue-900",
               )}
+              title={
+                appearance.originalTitle
+                  ? `Group name was "${appearance.originalTitle}" — showing primary contact instead`
+                  : undefined
+              }
             >
               {appearance.submissionTitle}
             </span>
             <span className="text-[11px] text-slate-500 italic">
               as {roleLabel}
             </span>
+            {tier === "locked" && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-200/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Team yes
+              </span>
+            )}
+            {showSolo && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-violet-50 text-violet-900 border border-violet-100 px-2 py-0.5 text-[10px] font-semibold"
+                title="One-person act — no teammates listed"
+              >
+                Solo · {appearance.submitterName}
+              </span>
+            )}
           </div>
           {myNotes && (
             <p className="mt-1 text-xs text-slate-600 truncate max-w-3xl">
               <span className="text-slate-400">Your notes:</span> {myNotes}
             </p>
           )}
-        </div>
+        </Link>
 
         <TeamPips
           counts={{
@@ -458,20 +510,10 @@ function AppearanceRow({
           }}
         />
 
-        <div className="w-24 shrink-0 text-right">
-          {myVerdict ? (
-            <span
-              className={cn(
-                "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border",
-                VERDICT_PILL[myVerdict],
-              )}
-            >
-              {VERDICT_LABEL[myVerdict]}
-            </span>
-          ) : (
-            <span className="text-xs text-slate-400">unjudged</span>
-          )}
-        </div>
+        <InlineVerdict
+          submissionId={appearance.submissionId}
+          initialVerdict={myVerdict}
+        />
 
         <div className="w-20 shrink-0 text-right text-[11px] text-slate-500 tabular-nums">
           {appearance.submittedAt
@@ -479,9 +521,15 @@ function AppearanceRow({
             : "—"}
         </div>
 
-        <ChevronRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-blue-500 transition shrink-0" />
+        <Link
+          href={`/submissions/${appearance.submissionId}`}
+          aria-label="Open submission"
+          className="shrink-0"
+        >
+          <ChevronRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-blue-500 transition" />
+        </Link>
       </div>
-    </Link>
+    </div>
   )
 }
 

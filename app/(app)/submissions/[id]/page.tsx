@@ -8,10 +8,18 @@ import { buttonVariants } from "@/components/ui/button"
 import { JudgingForm } from "@/components/judging-form"
 import { VideoLinkEditor } from "@/components/video-link-editor"
 import { TYPE_LABELS, type SubmissionType } from "@/lib/csv"
+import { classify, type Counts } from "@/lib/lineup-tiers"
+import { getActDisplayName } from "@/lib/solo-act"
 import { cn } from "@/lib/utils"
 import { looksLikeUrl, toEmbedUrl } from "@/lib/video"
+import { ActProfile } from "./act-profile"
 import { ConversationsCard } from "./conversations-card"
 import { TrashedBanner } from "./trashed-banner"
+import {
+  SubmissionImagesCard,
+  type SubmissionImage,
+} from "./submission-images-card"
+import { DOCUMENTS_BUCKET } from "@/app/(app)/documents/constants"
 
 const VERDICT_BADGE: Record<string, string> = {
   yes: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
@@ -68,19 +76,45 @@ export default async function SubmissionDetailPage({
 
   if (error || !submission) notFound()
 
-  const [{ data: myJudgment }, { data: teamJudgments }] = await Promise.all([
-    supabase
-      .from("judgments")
-      .select("verdict, notes")
-      .eq("user_id", user!.id)
-      .eq("submission_id", id)
-      .maybeSingle(),
-    supabase
-      .from("judgments")
-      .select("user_id, verdict, notes, updated_at, profiles(email, full_name)")
-      .eq("submission_id", id)
-      .neq("user_id", user!.id),
-  ])
+  const [{ data: myJudgment }, { data: teamJudgments }, { data: imageRows }] =
+    await Promise.all([
+      supabase
+        .from("judgments")
+        .select("verdict, notes")
+        .eq("user_id", user!.id)
+        .eq("submission_id", id)
+        .maybeSingle(),
+      supabase
+        .from("judgments")
+        .select(
+          "user_id, verdict, notes, updated_at, profiles(email, full_name)",
+        )
+        .eq("submission_id", id)
+        .neq("user_id", user!.id),
+      supabase
+        .from("documents")
+        .select("id, storage_path, file_name, mime_type, size_bytes")
+        .eq("submission_id", id)
+        .like("mime_type", "image/%")
+        .order("created_at", { ascending: true }),
+    ])
+
+  // Sign each image's storage path so the client can <img src=...> directly.
+  // Short TTL keeps URLs from leaking far if a screenshot ends up somewhere.
+  const submissionImages: SubmissionImage[] = []
+  for (const row of imageRows ?? []) {
+    const { data: signed } = await supabase.storage
+      .from(DOCUMENTS_BUCKET)
+      .createSignedUrl(row.storage_path, 60 * 60)
+    submissionImages.push({
+      id: row.id,
+      storage_path: row.storage_path,
+      file_name: row.file_name,
+      mime_type: row.mime_type,
+      size_bytes: row.size_bytes,
+      preview_url: signed?.signedUrl ?? null,
+    })
+  }
 
   const dataEntries = Object.entries(
     (submission.data as Record<string, unknown>) ?? {},
@@ -177,6 +211,25 @@ export default async function SubmissionDetailPage({
     return `/submissions?${p.toString()}`
   })()
 
+  // Confirmed-act dispatch: a "Team yes" tier on an act flips the page from
+  // the judging-focused view to the new act-profile long-doc layout. Trashed
+  // acts keep the legacy view so triage / restore stays familiar; volunteer
+  // and workshop submissions never flip.
+  const allVerdicts = [
+    myJudgment?.verdict,
+    ...(teamJudgments ?? []).map((j) => j.verdict),
+  ].filter((v): v is string => v === "yes" || v === "no" || v === "maybe")
+  const counts: Counts = {
+    yes_count: allVerdicts.filter((v) => v === "yes").length,
+    no_count: allVerdicts.filter((v) => v === "no").length,
+    maybe_count: allVerdicts.filter((v) => v === "maybe").length,
+    total_judgments: allVerdicts.length,
+  }
+  const isConfirmedAct =
+    submission.type === "act" &&
+    !submission.deleted_at &&
+    classify(counts) === "locked"
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-2">
@@ -246,6 +299,16 @@ export default async function SubmissionDetailPage({
         />
       )}
 
+      {isConfirmedAct ? (
+        <ActProfile
+          submission={submission}
+          myJudgment={myJudgment ?? null}
+          teamJudgments={teamJudgments ?? []}
+          counts={counts}
+          submissionImages={submissionImages}
+        />
+      ) : (
+        <>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -258,9 +321,27 @@ export default async function SubmissionDetailPage({
               </span>
             )}
           </div>
-          <h1 className="text-3xl font-semibold tracking-tight mt-2">
-            {submission.name ?? "(no name)"}
-          </h1>
+          {(() => {
+            const display =
+              submission.type === "act"
+                ? getActDisplayName({
+                    name: submission.name,
+                    data:
+                      (submission.data as Record<string, unknown> | null) ??
+                      null,
+                    email: submission.email,
+                  })
+                : {
+                    display: submission.name ?? "(no name)",
+                    substituted: false,
+                    original: submission.name,
+                  }
+            return (
+              <h1 className="text-3xl font-semibold tracking-tight mt-2">
+                {display.display}
+              </h1>
+            )
+          })()}
           {submission.email && (
             <a
               href={`mailto:${submission.email}`}
@@ -322,6 +403,11 @@ export default async function SubmissionDetailPage({
         </Card>
 
         <div className="space-y-6">
+          <SubmissionImagesCard
+            submissionId={submission.id}
+            initialImages={submissionImages}
+          />
+
           <Card>
             <CardHeader>
               <CardTitle>
@@ -432,6 +518,8 @@ export default async function SubmissionDetailPage({
           Back to list
         </Link>
       </div>
+        </>
+      )}
     </div>
   )
 }

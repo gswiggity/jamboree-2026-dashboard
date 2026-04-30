@@ -3,8 +3,15 @@ import { Gavel, Inbox, Mail } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { SUBMISSION_TYPES, TYPE_LABELS, type SubmissionType } from "@/lib/csv"
 import { buildCanonicalActFacets, canonicalActType } from "@/lib/act-types"
+import { classify } from "@/lib/lineup-tiers"
+import {
+  getActDisplayName,
+  getActSubmitter,
+  isSoloAct,
+} from "@/lib/solo-act"
 import { cn } from "@/lib/utils"
 import { toEmbedUrl } from "@/lib/video"
+import { InlineVerdict, type Verdict } from "@/components/inline-verdict"
 import { ActFacetsPicker } from "./facets-picker"
 import { RowVideoButton } from "./row-video-button"
 import { RowTrashButton } from "./row-trash-button"
@@ -17,14 +24,21 @@ type Search = {
   view?: string
 }
 
-type FilterKey = "all" | "unjudged" | "yes" | "maybe" | "no"
+type FilterKey = "all" | "team_yes" | "unjudged" | "yes" | "maybe" | "no"
 
 function isType(v: string | undefined): v is SubmissionType {
   return v === "act" || v === "volunteer" || v === "workshop"
 }
 
 function isFilter(v: string | undefined): v is FilterKey {
-  return v === "all" || v === "unjudged" || v === "yes" || v === "maybe" || v === "no"
+  return (
+    v === "all" ||
+    v === "team_yes" ||
+    v === "unjudged" ||
+    v === "yes" ||
+    v === "maybe" ||
+    v === "no"
+  )
 }
 
 function normalizeKey(s: string): string {
@@ -68,20 +82,9 @@ function buildFacet(values: (string | null | undefined)[]): {
   return out
 }
 
-const VERDICT_PILL: Record<string, string> = {
-  yes: "bg-emerald-100 text-emerald-900 border-emerald-200/80",
-  no: "bg-rose-100 text-rose-900 border-rose-200/80",
-  maybe: "bg-amber-100 text-amber-900 border-amber-200/80",
-}
-
-const VERDICT_LABEL: Record<string, string> = {
-  yes: "Yes",
-  maybe: "Maybe",
-  no: "No",
-}
-
 const FILTERS: Array<{ key: FilterKey; label: string; tone?: string }> = [
   { key: "all", label: "All" },
+  { key: "team_yes", label: "Team yes", tone: "emerald" },
   { key: "unjudged", label: "Unjudged" },
   { key: "yes", label: "My yes", tone: "emerald" },
   { key: "maybe", label: "My maybe", tone: "amber" },
@@ -217,10 +220,24 @@ export default async function SubmissionsPage({
       .map((c) => [c.submission_id as string, c]),
   )
 
+  // Build a set of submission IDs at "locked" team-yes consensus.
+  const teamYesIds = new Set<string>()
+  for (const c of counts ?? []) {
+    if (!c.submission_id) continue
+    const tier = classify({
+      yes_count: c.yes_count ?? 0,
+      no_count: c.no_count ?? 0,
+      maybe_count: c.maybe_count ?? 0,
+      total_judgments: c.total_judgments ?? 0,
+    })
+    if (tier === "locked") teamYesIds.add(c.submission_id)
+  }
+
   // Compute filter counts (within the narrowed-by-facets set) so each chip
   // shows a number.
   const filterCounts: Record<FilterKey, number> = {
     all: narrowedByActFacets.length,
+    team_yes: 0,
     unjudged: 0,
     yes: 0,
     maybe: 0,
@@ -228,6 +245,7 @@ export default async function SubmissionsPage({
   }
   for (const s of narrowedByActFacets) {
     const my = myMap.get(s.id) ?? null
+    if (teamYesIds.has(s.id)) filterCounts.team_yes++
     if (!my) filterCounts.unjudged++
     else if (my === "yes") filterCounts.yes++
     else if (my === "maybe") filterCounts.maybe++
@@ -236,6 +254,7 @@ export default async function SubmissionsPage({
 
   const filtered = narrowedByActFacets.filter((s) => {
     const my = myMap.get(s.id) ?? null
+    if (filter === "team_yes") return teamYesIds.has(s.id)
     if (filter === "unjudged") return !my
     if (filter === "yes" || filter === "no" || filter === "maybe") return my === filter
     return true
@@ -444,6 +463,8 @@ export default async function SubmissionsPage({
           <div className="rounded-2xl border border-white/70 bg-white/65 backdrop-blur-xl overflow-hidden divide-y divide-slate-200/60 shadow-[0_8px_28px_-18px_rgba(30,58,138,0.18)]">
             {filtered.map((s) => {
               const my = myMap.get(s.id) ?? null
+              const myVerdict: Verdict | null =
+                my === "yes" || my === "no" || my === "maybe" ? my : null
               const c = countsMap.get(s.id)
               const d = s.data as Record<string, unknown> | null
               const actTypeLabel =
@@ -471,21 +492,30 @@ export default async function SubmissionsPage({
                       )
                     })
                   : false
+              const isSolo = type === "act" ? isSoloAct({ data: d ?? null }) : false
+              const submitter =
+                type === "act" ? getActSubmitter({ data: d ?? null }) : null
+              const displayName =
+                type === "act"
+                  ? getActDisplayName({
+                      name: s.name,
+                      data: d ?? null,
+                      email: s.email,
+                    })
+                  : { display: s.name ?? "(no name)", substituted: false, original: s.name }
               return (
                 <SubmissionRow
                   key={s.id}
                   id={s.id}
-                  name={s.name ?? "(no name)"}
+                  name={displayName.display}
+                  nameWasSubstituted={displayName.substituted}
+                  originalName={displayName.original}
                   submittedAt={s.submitted_at}
                   metaParts={metaParts}
-                  type={type}
-                  myVerdict={my}
-                  counts={{
-                    yes: c?.yes_count ?? 0,
-                    maybe: c?.maybe_count ?? 0,
-                    no: c?.no_count ?? 0,
-                    total: c?.total_judgments ?? 0,
-                  }}
+                  myVerdict={myVerdict}
+                  isTeamYes={teamYesIds.has(s.id)}
+                  isSolo={isSolo}
+                  submitter={submitter}
                   detailHref={makeDetailHref(s.id)}
                   supplementalVideoUrl={supplementalUrl}
                   hasAutoDetectedVideo={autoVideo}
@@ -528,11 +558,14 @@ function toneDot(tone: string, active: boolean): string {
 function SubmissionRow({
   id,
   name,
+  nameWasSubstituted,
+  originalName,
   submittedAt,
   metaParts,
-  type,
   myVerdict,
-  counts,
+  isTeamYes,
+  isSolo,
+  submitter,
   detailHref,
   supplementalVideoUrl,
   hasAutoDetectedVideo,
@@ -541,11 +574,14 @@ function SubmissionRow({
 }: {
   id: string
   name: string
+  nameWasSubstituted: boolean
+  originalName: string | null
   submittedAt: string | null
   metaParts: string[]
-  type: SubmissionType
-  myVerdict: string | null
-  counts: { yes: number; maybe: number; no: number; total: number }
+  myVerdict: Verdict | null
+  isTeamYes: boolean
+  isSolo: boolean
+  submitter: string | null
   detailHref: string
   supplementalVideoUrl: string | null
   hasAutoDetectedVideo: boolean
@@ -568,19 +604,40 @@ function SubmissionRow({
         />
       )}
       <div className="flex-1 min-w-0">
-        <Link
-          href={detailHref}
-          className={cn(
-            "font-semibold block truncate",
-            isTrash
-              ? "text-slate-600 line-through hover:text-slate-900"
-              : "text-slate-900 hover:text-blue-900",
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href={detailHref}
+            className={cn(
+              "font-semibold truncate",
+              isTrash
+                ? "text-slate-600 line-through hover:text-slate-900"
+                : "text-slate-900 hover:text-blue-900",
+            )}
+            title={
+              nameWasSubstituted && originalName
+                ? `Group name was "${originalName}" — showing the primary contact instead`
+                : undefined
+            }
+          >
+            {name}
+          </Link>
+          {!isTrash && isTeamYes && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-200/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Team yes
+            </span>
           )}
-        >
-          {name}
-        </Link>
+          {!isTrash && isSolo && submitter && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-violet-50 text-violet-900 border border-violet-100 px-2 py-0.5 text-[10px] font-semibold"
+              title="One-person act — no teammates listed"
+            >
+              Solo · {submitter}
+            </span>
+          )}
+        </div>
         <div className="text-xs text-slate-600 truncate mt-0.5 flex items-center gap-1.5">
-          {type !== "act" && metaParts[0] && (
+          {metaParts[0]?.includes("@") && (
             <Mail className="h-3 w-3 text-slate-400 shrink-0" />
           )}
           <span className="truncate">
@@ -590,36 +647,18 @@ function SubmissionRow({
       </div>
 
       {!isTrash && (
-        <div className="hidden sm:flex items-center gap-3 shrink-0">
-          <TeamPips counts={counts} />
-        </div>
+        <InlineVerdict submissionId={id} initialVerdict={myVerdict} />
       )}
 
-      <div className="w-20 shrink-0 text-right">
-        {isTrash ? (
+      {isTrash && (
+        <div className="w-24 shrink-0 text-right">
           <span className="text-[11px] text-muted-foreground tabular-nums">
             {deletedAt
               ? `Trashed ${new Date(deletedAt).toLocaleDateString()}`
               : ""}
           </span>
-        ) : myVerdict ? (
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border",
-              VERDICT_PILL[myVerdict],
-            )}
-          >
-            {VERDICT_LABEL[myVerdict]}
-          </span>
-        ) : (
-          <Link
-            href={`/judge?type=${type}&id=${id}`}
-            className="text-xs font-semibold text-[#2340d9] hover:underline inline-flex items-center gap-0.5"
-          >
-            Judge →
-          </Link>
-        )}
-      </div>
+        </div>
+      )}
 
       {!isTrash && (
         <div className="hidden md:block w-24 shrink-0 text-right text-xs text-slate-500 tabular-nums">
@@ -628,37 +667,6 @@ function SubmissionRow({
       )}
 
       <RowTrashButton submissionId={id} mode={view} />
-    </div>
-  )
-}
-
-function TeamPips({
-  counts,
-}: {
-  counts: { yes: number; maybe: number; no: number; total: number }
-}) {
-  if (counts.total === 0) {
-    return (
-      <span className="text-[11px] text-slate-400 italic whitespace-nowrap">
-        No team votes
-      </span>
-    )
-  }
-  const pip = "h-2 w-2 rounded-full"
-  return (
-    <div
-      className="flex items-center gap-0.5"
-      title={`${counts.yes} yes · ${counts.maybe} maybe · ${counts.no} no`}
-    >
-      {Array.from({ length: counts.yes }).map((_, i) => (
-        <span key={`y${i}`} className={cn(pip, "bg-emerald-500")} />
-      ))}
-      {Array.from({ length: counts.maybe }).map((_, i) => (
-        <span key={`m${i}`} className={cn(pip, "bg-amber-400")} />
-      ))}
-      {Array.from({ length: counts.no }).map((_, i) => (
-        <span key={`n${i}`} className={cn(pip, "bg-rose-400")} />
-      ))}
     </div>
   )
 }

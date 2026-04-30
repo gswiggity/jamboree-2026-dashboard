@@ -132,6 +132,7 @@ export type Database = {
           name: string
           size_bytes: number
           storage_path: string
+          submission_id: string | null
           updated_at: string
           uploaded_by: string | null
         }
@@ -145,6 +146,7 @@ export type Database = {
           name: string
           size_bytes?: number
           storage_path: string
+          submission_id?: string | null
           updated_at?: string
           uploaded_by?: string | null
         }
@@ -158,10 +160,25 @@ export type Database = {
           name?: string
           size_bytes?: number
           storage_path?: string
+          submission_id?: string | null
           updated_at?: string
           uploaded_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "documents_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submission_verdict_counts"
+            referencedColumns: ["submission_id"]
+          },
+          {
+            foreignKeyName: "documents_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submissions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "documents_uploaded_by_fkey"
             columns: ["uploaded_by"]
@@ -1140,6 +1157,13 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "volunteer_shifts_role_key_fkey"
+            columns: ["role_key"]
+            isOneToOne: false
+            referencedRelation: "volunteer_roles"
+            referencedColumns: ["key"]
+          },
         ]
       }
     }
@@ -1290,3 +1314,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
