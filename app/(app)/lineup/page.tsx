@@ -17,6 +17,7 @@ import {
   getActSubmitter,
   isSoloAct,
 } from "@/lib/solo-act"
+import { getActAvailability } from "@/lib/availability"
 import {
   classify,
   TIER_BLURB,
@@ -738,6 +739,7 @@ async function BoardView({ userId }: { userId: string }) {
       }),
       counts,
       myVerdict,
+      availability: getActAvailability(data),
     })
   }
 

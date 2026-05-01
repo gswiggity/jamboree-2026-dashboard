@@ -16,15 +16,24 @@ import {
   ArrowDownUp,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  Layers,
   Pencil,
   Plus,
   Search,
   Tag as TagIcon,
+  Timer,
   Trash2,
+  Users,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import {
+  FESTIVAL_DAY_META,
+  FESTIVAL_DAY_ORDER,
+  type FestivalDay,
+} from "@/lib/availability"
 import { InlineVerdict, type Verdict } from "@/components/inline-verdict"
 import {
   createColumn,
@@ -62,9 +71,62 @@ export type BoardCard = {
   tier: Tier | null
   counts: { yes_count: number; no_count: number; maybe_count: number }
   myVerdict: Verdict | null
+  // Days the act said they're available to perform — parsed from the
+  // Squarespace freeform "Which days would you be available to perform"
+  // field. Empty array means they didn't answer (or we couldn't parse).
+  availability: FestivalDay[]
 }
 
 const UNSORTED_ID = "__unsorted__"
+
+// Buffer between consecutive acts in a programmed slot (in minutes). Used
+// for the "with buffer" subtotal — production typically wants ~2 minutes
+// of resets between each handoff.
+const ACT_BUFFER_MINUTES = 2
+
+export type ColumnStats = {
+  // How many acts (cards) the column holds — same as cards.length, but
+  // included so callers can render "0 acts" without a separate prop.
+  cardCount: number
+  // Sum of set lengths in minutes. Cards without a set length contribute 0.
+  totalMinutes: number
+  // Same sum, plus a fixed buffer between consecutive acts. Useful for
+  // sanity-checking against the show block length.
+  totalMinutesWithBuffer: number
+  // Performers on stage across the column — primary contact (1) plus any
+  // additional members listed on the act. Solo acts contribute 1.
+  totalPerformers: number
+  // Unique act-type labels (e.g. "Improv", "Sketch"). Lets you spot a
+  // sketch-heavy or improv-heavy lineup at a glance.
+  uniqueActTypes: number
+}
+
+function computeColumnStats(cards: BoardCard[]): ColumnStats {
+  const cardCount = cards.length
+  const totalMinutes = cards.reduce(
+    (acc, c) => acc + (c.setLengthMinutes ?? 0),
+    0,
+  )
+  const totalMinutesWithBuffer =
+    cardCount > 1
+      ? totalMinutes + (cardCount - 1) * ACT_BUFFER_MINUTES
+      : totalMinutes
+  const totalPerformers = cards.reduce(
+    (acc, c) => acc + 1 + c.members.length,
+    0,
+  )
+  const types = new Set<string>()
+  for (const c of cards) {
+    if (c.typeLabel) types.add(c.typeLabel)
+  }
+  return {
+    cardCount,
+    totalMinutes,
+    totalMinutesWithBuffer,
+    totalPerformers,
+    uniqueActTypes: types.size,
+  }
+}
 
 const TIER_DOT: Record<Tier, string> = {
   locked: "bg-emerald-500",
@@ -514,9 +576,13 @@ export function LineupBoard({
       <div className="-mx-4 px-4 overflow-x-auto pb-4">
         <div className="flex items-start gap-3 min-h-[60vh]">
           {allColumns.map((col, idx) => {
-            const colCards =
-              cardsByColumnVisible.get(col.isUnsorted ? UNSORTED_ID : col.id) ??
-              []
+            const key = col.isUnsorted ? UNSORTED_ID : col.id
+            const colCards = cardsByColumnVisible.get(key) ?? []
+            // Subtotals are computed off the *manual* (unfiltered) list so
+            // the totals stay stable while you search or change sort.
+            const stats = computeColumnStats(
+              cardsByColumnManual.get(key) ?? [],
+            )
             return (
               <Column
                 key={col.id}
@@ -526,6 +592,7 @@ export function LineupBoard({
                 canMoveLeft={!col.isUnsorted && idx > 1}
                 canMoveRight={!col.isUnsorted && idx < allColumns.length - 1}
                 cards={colCards}
+                stats={stats}
                 draggableCards={sortKey === "manual"}
                 onCardDrop={handleCardDrop}
                 onRename={(t) =>
@@ -558,6 +625,7 @@ function Column({
   canMoveLeft,
   canMoveRight,
   cards,
+  stats,
   draggableCards,
   onCardDrop,
   onRename,
@@ -572,6 +640,7 @@ function Column({
   canMoveLeft: boolean
   canMoveRight: boolean
   cards: BoardCard[]
+  stats: ColumnStats
   draggableCards: boolean
   onCardDrop: (opts: {
     cardId: string
@@ -702,6 +771,8 @@ function Column({
         )}
       </div>
 
+      {stats.cardCount > 0 && <ColumnSubtotals stats={stats} />}
+
       <div
         onDragOver={onDragOverColumn}
         onDragLeave={() => setHovered(false)}
@@ -726,6 +797,109 @@ function Column({
           ))
         )}
       </div>
+    </div>
+  )
+}
+
+/* ============================================================ Subtotals */
+
+function ColumnSubtotals({ stats }: { stats: ColumnStats }) {
+  const hasTime = stats.totalMinutes > 0
+  return (
+    <div className="mx-3 mb-2 rounded-lg border border-slate-200/70 bg-white/70 backdrop-blur px-2.5 py-2 text-[11px] text-slate-700">
+      <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
+        <SubtotalCell
+          icon={<Clock className="h-3 w-3" />}
+          label="Total"
+          value={hasTime ? `${stats.totalMinutes}m` : "—"}
+        />
+        <SubtotalCell
+          icon={<Timer className="h-3 w-3" />}
+          label="+ buffer"
+          value={hasTime ? `${stats.totalMinutesWithBuffer}m` : "—"}
+          title={`Includes a ${ACT_BUFFER_MINUTES}-minute buffer between consecutive acts (${stats.cardCount > 1 ? `${(stats.cardCount - 1) * ACT_BUFFER_MINUTES} min added` : "no buffer with one act"}).`}
+        />
+        <SubtotalCell
+          icon={<Users className="h-3 w-3" />}
+          label="On stage"
+          value={`${stats.totalPerformers}`}
+          title="Primary contact + every name in the Performers field, summed across acts in this column."
+        />
+        <SubtotalCell
+          icon={<Layers className="h-3 w-3" />}
+          label={stats.uniqueActTypes === 1 ? "Type" : "Types"}
+          value={`${stats.uniqueActTypes}`}
+          title="Distinct canonical act types (e.g. Improv, Sketch) represented in this column."
+        />
+      </div>
+    </div>
+  )
+}
+
+function SubtotalCell({
+  icon,
+  label,
+  value,
+  title,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  title?: string
+}) {
+  return (
+    <div
+      className="flex items-center gap-1.5 min-w-0"
+      title={title}
+    >
+      <span className="text-slate-500 shrink-0">{icon}</span>
+      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500 shrink-0">
+        {label}
+      </span>
+      <span className="ml-auto font-semibold tabular-nums text-slate-900">
+        {value}
+      </span>
+    </div>
+  )
+}
+
+/* ============================================================ Availability */
+
+function AvailabilityChips({ available }: { available: FestivalDay[] }) {
+  const set = new Set(available)
+  const allUnknown = available.length === 0
+  return (
+    <div
+      className="inline-flex items-center gap-1"
+      title={
+        allUnknown
+          ? "No availability info on the submission yet"
+          : "Days the act said they're available to perform"
+      }
+      // Sticky-card drag handlers shouldn't fire when hovering this strip.
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {FESTIVAL_DAY_ORDER.map((day) => {
+        const meta = FESTIVAL_DAY_META[day]
+        const on = set.has(day)
+        return (
+          <span
+            key={day}
+            title={`${meta.long}${on ? " — available" : allUnknown ? " — no answer" : " — not available"}`}
+            className={cn(
+              "inline-flex items-center justify-center h-6 w-6 rounded-full border text-[11px] font-bold tabular-nums transition",
+              on
+                ? "bg-emerald-600 text-white border-emerald-600"
+                : allUnknown
+                  ? "bg-white/40 text-slate-400 border-slate-200/70 border-dashed"
+                  : "bg-white/70 text-slate-400 border-slate-200/80",
+            )}
+          >
+            {meta.letter}
+          </span>
+        )
+      })}
     </div>
   )
 }
@@ -864,6 +1038,13 @@ function StickyCard({
       />
 
       <div className="mt-2 pt-2 border-t border-white/60 flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-slate-500">
+          Avail
+        </span>
+        <AvailabilityChips available={card.availability} />
+      </div>
+
+      <div className="mt-1.5 flex items-center justify-between gap-2">
         <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-slate-500">
           My vote
         </span>
