@@ -289,32 +289,57 @@ async function ListView({
     .map((r) => r.submission_id)
     .filter((id): id is string => id !== null)
 
-  const [{ data: submissions }, { data: myJudgments }] = await Promise.all([
-    ids.length
-      ? supabase
-          .from("submissions")
-          .select("id, name, email, submitted_at, data")
-          .in("id", ids)
-          .is("deleted_at", null)
-      : Promise.resolve({
-          data: [] as Array<{
-            id: string
-            name: string | null
-            email: string | null
-            submitted_at: string | null
-            data: unknown
-          }>,
-        }),
-    ids.length
-      ? supabase
-          .from("judgments")
-          .select("submission_id, verdict")
-          .eq("user_id", userId)
-          .in("submission_id", ids)
-      : Promise.resolve({
-          data: [] as Array<{ submission_id: string; verdict: string | null }>,
-        }),
-  ])
+  const [{ data: submissions }, { data: myJudgments }, { data: cardRows }] =
+    await Promise.all([
+      ids.length
+        ? supabase
+            .from("submissions")
+            .select("id, name, email, submitted_at, data")
+            .in("id", ids)
+            .is("deleted_at", null)
+        : Promise.resolve({
+            data: [] as Array<{
+              id: string
+              name: string | null
+              email: string | null
+              submitted_at: string | null
+              data: unknown
+            }>,
+          }),
+      ids.length
+        ? supabase
+            .from("judgments")
+            .select("submission_id, verdict")
+            .eq("user_id", userId)
+            .in("submission_id", ids)
+        : Promise.resolve({
+            data: [] as Array<{ submission_id: string; verdict: string | null }>,
+          }),
+      // Board placement — only meaningful for acts. For vol/workshop the
+      // result is empty and the indicator never renders.
+      type === "act" && ids.length
+        ? supabase
+            .from("lineup_cards")
+            .select("submission_id, lineup_columns(title)")
+            .in("submission_id", ids)
+        : Promise.resolve({
+            data: [] as Array<{
+              submission_id: string
+              lineup_columns: { title: string } | { title: string }[] | null
+            }>,
+          }),
+    ])
+
+  // Map each submission to the title of the column it sits in on the board,
+  // or null if it's in Unsorted / has no card yet. Supabase's nested-select
+  // typing returns an array for to-many and an object for to-one, so we
+  // normalize both shapes.
+  const columnBySubId = new Map<string, string | null>()
+  for (const row of cardRows ?? []) {
+    const rel = row.lineup_columns
+    const title = Array.isArray(rel) ? (rel[0]?.title ?? null) : (rel?.title ?? null)
+    columnBySubId.set(row.submission_id, title)
+  }
 
   const subMap = new Map((submissions ?? []).map((s) => [s.id, s]))
   const myMap = new Map(
@@ -333,6 +358,11 @@ async function ListView({
     submitter: string | null
     isSolo: boolean
     myVerdict: Verdict | null
+    // Title of the board column this act sits in. null means "in Unsorted"
+    // or no card yet — surfaced in the row as a muted "Not on board" hint.
+    // Only populated for type==="act" (the board only exists for acts).
+    boardColumn: string | null
+    onBoard: boolean
   }
   const buckets: Record<Tier, Item[]> = {
     locked: [],
@@ -383,6 +413,9 @@ async function ListView({
       submitter: type === "act" ? getActSubmitter({ data: data ?? null }) : null,
       isSolo: type === "act" ? isSoloAct({ data: data ?? null }) : false,
       myVerdict,
+      boardColumn:
+        type === "act" ? (columnBySubId.get(id) ?? null) : null,
+      onBoard: type === "act",
     })
   }
 
@@ -499,6 +532,8 @@ function LineupRow({
     submitter: string | null
     isSolo: boolean
     myVerdict: Verdict | null
+    boardColumn: string | null
+    onBoard: boolean
   }
   tier: Tier
 }) {
@@ -535,6 +570,24 @@ function LineupRow({
             "—"}
         </div>
       </div>
+      {item.onBoard && (
+        item.boardColumn ? (
+          <span
+            className="shrink-0 inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-900 border border-blue-200/80 px-2 py-0.5 text-[10px] font-semibold max-w-[12rem] truncate"
+            title={`On the board in "${item.boardColumn}"`}
+          >
+            <LayoutGrid className="h-2.5 w-2.5" />
+            {item.boardColumn}
+          </span>
+        ) : (
+          <span
+            className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-500"
+            title="Not placed in a board column yet"
+          >
+            Not on board
+          </span>
+        )
+      )}
       <div className="flex items-center gap-1.5 shrink-0">
         <Tally tone="emerald" value={item.counts.yes_count} label="Y" />
         <Tally tone="amber" value={item.counts.maybe_count} label="M" />
