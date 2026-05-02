@@ -135,6 +135,37 @@ export async function restoreSubmission(
   return { ok: true }
 }
 
+// One-per-act outreach flag. The first teammate to mark it stamps their
+// name + the timestamp; clearing it nulls both fields so a future re-mark
+// captures whoever sent the second outreach.
+export async function setEmailed(
+  submissionId: string,
+  emailed: boolean,
+): Promise<ActionResult> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Not authenticated." }
+
+  const patch = emailed
+    ? { first_emailed_at: new Date().toISOString(), first_emailed_by: user.id }
+    : { first_emailed_at: null, first_emailed_by: null }
+
+  const { error } = await supabase
+    .from("submissions")
+    .update(patch)
+    .eq("id", submissionId)
+  if (error) return { ok: false, error: error.message }
+
+  revalidatePath(`/submissions/${submissionId}`)
+  revalidatePath("/submissions")
+  revalidatePath("/lineup")
+  revalidatePath("/performers")
+  revalidatePath("/dashboard")
+  return { ok: true }
+}
+
 export async function setSupplementalVideoUrl(
   submissionId: string,
   url: string | null,

@@ -30,6 +30,7 @@ import {
 import { SUBMISSION_TYPES, TYPE_LABELS, type SubmissionType } from "@/lib/csv"
 import { cn } from "@/lib/utils"
 import { InlineVerdict, type Verdict } from "@/components/inline-verdict"
+import { EmailedToggle } from "@/components/emailed-toggle"
 import { LineupBoard, type BoardCard, type BoardColumn } from "./board"
 
 type Search = { type?: string; view?: string; filter?: string }
@@ -294,7 +295,9 @@ async function ListView({
       ids.length
         ? supabase
             .from("submissions")
-            .select("id, name, email, submitted_at, data")
+            .select(
+              "id, name, email, submitted_at, data, first_emailed_at, first_emailed_by",
+            )
             .in("id", ids)
             .is("deleted_at", null)
         : Promise.resolve({
@@ -304,6 +307,8 @@ async function ListView({
               email: string | null
               submitted_at: string | null
               data: unknown
+              first_emailed_at: string | null
+              first_emailed_by: string | null
             }>,
           }),
       ids.length
@@ -346,6 +351,26 @@ async function ListView({
     (myJudgments ?? []).map((j) => [j.submission_id, j.verdict]),
   )
 
+  // One round-trip lookup of all teammates who flipped the emailed flag,
+  // so each row's tooltip can read "Emailed by Jane".
+  const emailerIds = Array.from(
+    new Set(
+      (submissions ?? [])
+        .map((s) => s.first_emailed_by)
+        .filter((v): v is string => v !== null),
+    ),
+  )
+  const emailerNameById = new Map<string, string>()
+  if (emailerIds.length > 0) {
+    const { data: profs } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", emailerIds)
+    for (const p of profs ?? []) {
+      emailerNameById.set(p.id, p.full_name ?? p.email ?? "Teammate")
+    }
+  }
+
   type Item = {
     id: string
     name: string
@@ -363,6 +388,8 @@ async function ListView({
     // Only populated for type==="act" (the board only exists for acts).
     boardColumn: string | null
     onBoard: boolean
+    emailedAt: string | null
+    emailedByName: string | null
   }
   const buckets: Record<Tier, Item[]> = {
     locked: [],
@@ -416,6 +443,10 @@ async function ListView({
       boardColumn:
         type === "act" ? (columnBySubId.get(id) ?? null) : null,
       onBoard: type === "act",
+      emailedAt: s.first_emailed_at ?? null,
+      emailedByName: s.first_emailed_by
+        ? (emailerNameById.get(s.first_emailed_by) ?? null)
+        : null,
     })
   }
 
@@ -534,6 +565,8 @@ function LineupRow({
     myVerdict: Verdict | null
     boardColumn: string | null
     onBoard: boolean
+    emailedAt: string | null
+    emailedByName: string | null
   }
   tier: Tier
 }) {
@@ -570,6 +603,11 @@ function LineupRow({
             "—"}
         </div>
       </div>
+      <EmailedToggle
+        submissionId={item.id}
+        initialEmailedAt={item.emailedAt}
+        emailedByName={item.emailedByName}
+      />
       {item.onBoard && (
         item.boardColumn ? (
           <span
@@ -687,7 +725,9 @@ async function BoardView({ userId }: { userId: string }) {
     approvedIds.length > 0
       ? supabase
           .from("submissions")
-          .select("id, name, email, data")
+          .select(
+            "id, name, email, data, first_emailed_at, first_emailed_by",
+          )
           .in("id", approvedIds)
           .is("deleted_at", null)
       : Promise.resolve({ data: [] as never[] }),
@@ -736,6 +776,25 @@ async function BoardView({ userId }: { userId: string }) {
   const myVerdictBySubId = new Map(
     (myJudgments ?? []).map((j) => [j.submission_id, j.verdict] as const),
   )
+
+  // Resolve teammate display names for the outreach tooltip on each card.
+  const emailerIds = Array.from(
+    new Set(
+      (submissions ?? [])
+        .map((s) => (s as { first_emailed_by: string | null }).first_emailed_by)
+        .filter((v): v is string => v !== null),
+    ),
+  )
+  const emailerNameById = new Map<string, string>()
+  if (emailerIds.length > 0) {
+    const { data: profs } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", emailerIds)
+    for (const p of profs ?? []) {
+      emailerNameById.set(p.id, p.full_name ?? p.email ?? "Teammate")
+    }
+  }
 
   const boardColumns: BoardColumn[] = (columns ?? []).map((c) => ({
     id: c.id,
@@ -793,6 +852,12 @@ async function BoardView({ userId }: { userId: string }) {
       counts,
       myVerdict,
       availability: getActAvailability(data),
+      emailedAt:
+        (sub as { first_emailed_at: string | null }).first_emailed_at ?? null,
+      emailedByName: (() => {
+        const by = (sub as { first_emailed_by: string | null }).first_emailed_by
+        return by ? (emailerNameById.get(by) ?? null) : null
+      })(),
     })
   }
 

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { buttonVariants } from "@/components/ui/button"
 import { JudgingForm } from "@/components/judging-form"
+import { EmailedToggle } from "@/components/emailed-toggle"
 import { VideoLinkEditor } from "@/components/video-link-editor"
 import { TYPE_LABELS, type SubmissionType } from "@/lib/csv"
 import { classify, type Counts } from "@/lib/lineup-tiers"
@@ -69,7 +70,7 @@ export default async function SubmissionDetailPage({
   const { data: submission, error } = await supabase
     .from("submissions")
     .select(
-      "id, type, name, email, submitted_at, data, created_at, supplemental_video_url, deleted_at",
+      "id, type, name, email, submitted_at, data, created_at, supplemental_video_url, deleted_at, first_emailed_at, first_emailed_by",
     )
     .eq("id", id)
     .single()
@@ -98,6 +99,19 @@ export default async function SubmissionDetailPage({
         .like("mime_type", "image/%")
         .order("created_at", { ascending: true }),
     ])
+
+  // Resolve the teammate who marked the act as emailed (if any), so the
+  // toggle's tooltip can show "Emailed by Jane on May 2".
+  let emailedByName: string | null = null
+  if (submission.first_emailed_by) {
+    const { data: emailedByProfile } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", submission.first_emailed_by)
+      .maybeSingle()
+    emailedByName =
+      emailedByProfile?.full_name ?? emailedByProfile?.email ?? null
+  }
 
   // Sign each image's storage path so the client can <img src=...> directly.
   // Short TTL keeps URLs from leaking far if a screenshot ends up somewhere.
@@ -351,6 +365,12 @@ export default async function SubmissionDetailPage({
             </a>
           )}
         </div>
+        <EmailedToggle
+          submissionId={submission.id}
+          initialEmailedAt={submission.first_emailed_at ?? null}
+          emailedByName={emailedByName}
+          size="md"
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">

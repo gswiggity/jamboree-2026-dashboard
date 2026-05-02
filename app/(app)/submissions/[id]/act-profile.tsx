@@ -22,6 +22,7 @@ import {
   TIER_TONE,
   type Counts,
 } from "@/lib/lineup-tiers"
+import { EmailedToggle } from "@/components/emailed-toggle"
 import { ConversationsCard } from "./conversations-card"
 import {
   SubmissionImagesCard,
@@ -39,6 +40,8 @@ type SubmissionRow = {
   created_at: string
   supplemental_video_url: string | null
   deleted_at: string | null
+  first_emailed_at: string | null
+  first_emailed_by: string | null
 }
 
 type TeamJudgment = {
@@ -176,6 +179,17 @@ export async function ActProfile({
   const showLengthRequested = pickString(data, ["Show length", "Set length", "Show Length"]) ?? null
 
   const tier = classify(counts)
+
+  let emailedByName: string | null = null
+  if (submission.first_emailed_by) {
+    const { data: emailedByProfile } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", submission.first_emailed_by)
+      .maybeSingle()
+    emailedByName =
+      emailedByProfile?.full_name ?? emailedByProfile?.email ?? null
+  }
 
   // additional act-specific data
   const [
@@ -328,6 +342,14 @@ export async function ActProfile({
               {submission.email}
             </a>
           )}
+          <div className="mt-3">
+            <EmailedToggle
+              submissionId={submission.id}
+              initialEmailedAt={submission.first_emailed_at ?? null}
+              emailedByName={emailedByName}
+              size="md"
+            />
+          </div>
         </div>
 
         {/* tag row */}

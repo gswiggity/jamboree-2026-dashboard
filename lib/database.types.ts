@@ -802,6 +802,8 @@ export type Database = {
           deleted_at: string | null
           email: string | null
           external_id: string
+          first_emailed_at: string | null
+          first_emailed_by: string | null
           id: string
           name: string | null
           source_import_id: string | null
@@ -816,6 +818,8 @@ export type Database = {
           deleted_at?: string | null
           email?: string | null
           external_id: string
+          first_emailed_at?: string | null
+          first_emailed_by?: string | null
           id?: string
           name?: string | null
           source_import_id?: string | null
@@ -830,6 +834,8 @@ export type Database = {
           deleted_at?: string | null
           email?: string | null
           external_id?: string
+          first_emailed_at?: string | null
+          first_emailed_by?: string | null
           id?: string
           name?: string | null
           source_import_id?: string | null

@@ -36,6 +36,7 @@ import {
 } from "@/lib/availability"
 import { normalizeName } from "@/lib/performers"
 import { InlineVerdict, type Verdict } from "@/components/inline-verdict"
+import { EmailedToggle } from "@/components/emailed-toggle"
 import {
   createColumn,
   deleteColumn,
@@ -76,6 +77,10 @@ export type BoardCard = {
   // Squarespace freeform "Which days would you be available to perform"
   // field. Empty array means they didn't answer (or we couldn't parse).
   availability: FestivalDay[]
+  // Outreach status — null = not yet emailed; ISO timestamp = first email
+  // sent. emailedByName is the teammate who marked it (display fallback).
+  emailedAt: string | null
+  emailedByName: string | null
 }
 
 const UNSORTED_ID = "__unsorted__"
@@ -1063,6 +1068,17 @@ function StickyCard({
           submissionId={card.submissionId}
           initialVerdict={card.myVerdict}
           size="sm"
+        />
+      </div>
+
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-slate-500">
+          Outreach
+        </span>
+        <EmailedToggle
+          submissionId={card.submissionId}
+          initialEmailedAt={card.emailedAt}
+          emailedByName={card.emailedByName}
         />
       </div>
     </div>
