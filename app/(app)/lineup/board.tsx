@@ -34,6 +34,7 @@ import {
   FESTIVAL_DAY_ORDER,
   type FestivalDay,
 } from "@/lib/availability"
+import { normalizeName } from "@/lib/performers"
 import { InlineVerdict, type Verdict } from "@/components/inline-verdict"
 import {
   createColumn,
@@ -111,10 +112,17 @@ function computeColumnStats(cards: BoardCard[]): ColumnStats {
     cardCount > 1
       ? totalMinutes + (cardCount - 1) * ACT_BUFFER_MINUTES
       : totalMinutes
-  const totalPerformers = cards.reduce(
-    (acc, c) => acc + 1 + c.members.length,
-    0,
-  )
+  // Unique members across the column. We dedupe by normalized name so the
+  // same person appearing on two acts in this column only counts once,
+  // and we ignore primary contacts (who are already listed in the
+  // Performers field for groups that fill it out).
+  const memberSet = new Set<string>()
+  for (const c of cards) {
+    for (const m of c.members) {
+      const key = normalizeName(m)
+      if (key) memberSet.add(key)
+    }
+  }
   const types = new Set<string>()
   for (const c of cards) {
     if (c.typeLabel) types.add(c.typeLabel)
@@ -123,7 +131,7 @@ function computeColumnStats(cards: BoardCard[]): ColumnStats {
     cardCount,
     totalMinutes,
     totalMinutesWithBuffer,
-    totalPerformers,
+    totalPerformers: memberSet.size,
     uniqueActTypes: types.size,
   }
 }
@@ -821,9 +829,9 @@ function ColumnSubtotals({ stats }: { stats: ColumnStats }) {
         />
         <SubtotalCell
           icon={<Users className="h-3 w-3" />}
-          label="On stage"
+          label="Members"
           value={`${stats.totalPerformers}`}
-          title="Primary contact + every name in the Performers field, summed across acts in this column."
+          title="Unique members across all acts in this column (deduped by name; primary contacts excluded)."
         />
         <SubtotalCell
           icon={<Layers className="h-3 w-3" />}
@@ -986,8 +994,11 @@ function StickyCard({
         </span>
       )}
 
-      <div
-        className="font-semibold text-sm text-slate-900 leading-snug pr-16 break-words"
+      <a
+        href={`/submissions/${card.submissionId}`}
+        draggable={false}
+        onPointerDown={(e) => e.stopPropagation()}
+        className="block font-semibold text-sm text-slate-900 leading-snug pr-16 break-words hover:text-[#2340d9] hover:underline"
         title={
           card.nameWasSubstituted && card.originalName
             ? `Group name was "${card.originalName}"`
@@ -995,7 +1006,7 @@ function StickyCard({
         }
       >
         {card.name}
-      </div>
+      </a>
 
       <div className="text-[11px] text-slate-700 mt-0.5">
         {card.typeLabel}
