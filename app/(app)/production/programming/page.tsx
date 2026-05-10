@@ -8,6 +8,7 @@ import { ArrowRightIcon, ClockIcon, MapPinIcon, MicIcon, SparklesIcon, UsersIcon
 import { getActDisplayName } from "@/lib/solo-act"
 import { FESTIVAL_DAYS } from "../festival"
 import { DraftPicker } from "./draft-picker"
+import { CopyLineupButton } from "./copy-lineup-button"
 
 type SearchParams = { [key: string]: string | string[] | undefined }
 
@@ -16,6 +17,58 @@ function formatTime(t: string): string {
   const period = hh < 12 ? "am" : "pm"
   const hh12 = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh
   return mm === 0 ? `${hh12}${period}` : `${hh12}:${String(mm).padStart(2, "0")}${period}`
+}
+
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+]
+
+function formatLongDate(date: string): string {
+  // date is "YYYY-MM-DD"; render as "July 8, 2026"
+  const [y, m, d] = date.split("-").map(Number)
+  return `${MONTHS[m - 1]} ${d}, ${y}`
+}
+
+function blockKindLabel(kind: string | null | undefined): string {
+  if (kind === "workshop") return "Workshop"
+  if (kind === "event") return "Event"
+  return "Show"
+}
+
+type LineupBlock = {
+  start_time: string
+  end_time: string
+  title: string | null
+  kind: string | null
+  theme: string | null
+  notes: string | null
+  acts: { name: string | null }[]
+}
+
+function buildLineupText(
+  days: { date: string; long: string; blocks: LineupBlock[] }[],
+): string {
+  const sections: string[] = []
+  for (const day of days) {
+    if (day.blocks.length === 0) continue
+    const header = `${day.long} - ${formatLongDate(day.date)}`
+    const lines: string[] = [header, ""]
+    for (const b of day.blocks) {
+      const time = `${formatTime(b.start_time)} - ${formatTime(b.end_time)}`
+      const title = b.title ?? "Untitled block"
+      const kind = blockKindLabel(b.kind)
+      lines.push(`* ${time}: ${title} (${kind})`)
+      const desc = (b.theme && b.theme.trim()) || (b.notes && b.notes.trim()) || null
+      if (desc) lines.push(`   * ${desc}`)
+      for (const a of b.acts) {
+        const name = a.name?.trim() || "Untitled"
+        lines.push(`      * ${name}`)
+      }
+    }
+    sections.push(lines.join("\n"))
+  }
+  return sections.join("\n\n")
 }
 
 export default async function ProgrammingIndexPage({
@@ -55,7 +108,7 @@ export default async function ProgrammingIndexPage({
   if (!selected) {
     return (
       <div className="space-y-6">
-        <Header />
+        <Header copyText="" />
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
             No production drafts yet. Create one in <Link className="underline" href="/production">Schedule</Link>.
@@ -73,6 +126,9 @@ export default async function ProgrammingIndexPage({
     .eq("draft_id", selected.id)
     .order("day", { ascending: true })
     .order("start_time", { ascending: true })
+
+  // Server-side rendered text payload for the Copy lineup button. We build
+  // it after the joins below populate tagsByBlock — see buildLineupText.
 
   const blocks = blocksRaw ?? []
 
@@ -141,9 +197,26 @@ export default async function ProgrammingIndexPage({
     byDay.set(b.day, arr)
   }
 
+  // Build the copy-able plaintext lineup, in festival-day order.
+  const lineupText = buildLineupText(
+    FESTIVAL_DAYS.filter((d) => byDay.has(d.date)).map((d) => ({
+      date: d.date,
+      long: d.long,
+      blocks: (byDay.get(d.date) ?? []).map((b) => ({
+        start_time: b.start_time,
+        end_time: b.end_time,
+        title: b.title,
+        kind: b.kind,
+        theme: b.theme,
+        notes: b.notes,
+        acts: (tagsByBlock.get(b.id) ?? []).map((a) => ({ name: a.name })),
+      })),
+    })),
+  )
+
   return (
     <div className="space-y-6">
-      <Header />
+      <Header copyText={lineupText} />
 
       {selectableDrafts.length > 1 && (
         <DraftPicker
@@ -284,7 +357,7 @@ function KindBadge({ kind }: { kind: string | null | undefined }) {
   )
 }
 
-function Header() {
+function Header({ copyText }: { copyText: string }) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-3">
       <div>
@@ -293,12 +366,15 @@ function Header() {
           Match approved acts to each show block, set act lengths, and build the billing.
         </p>
       </div>
-      <Link
-        href="/production"
-        className={buttonVariants({ variant: "outline", size: "sm" })}
-      >
-        Schedule view
-      </Link>
+      <div className="flex flex-wrap items-center gap-2">
+        <CopyLineupButton text={copyText} />
+        <Link
+          href="/production"
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          Schedule view
+        </Link>
+      </div>
     </div>
   )
 }
