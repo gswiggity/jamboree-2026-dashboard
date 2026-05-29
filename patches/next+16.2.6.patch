@@ -1,0 +1,32 @@
+diff --git a/node_modules/next/dist/build/utils.js b/node_modules/next/dist/build/utils.js
+index 82b6eb4..3eb30b4 100644
+--- a/node_modules/next/dist/build/utils.js
++++ b/node_modules/next/dist/build/utils.js
+@@ -577,7 +577,10 @@ async function isPageStatic({ dir, page, distDir, configFileName, httpAgentOptio
+             hasStaticProps: false,
+             hasServerProps: false,
+             isNextImageImported: false,
+-            appConfig: {}
++            // Workaround for vercel/next.js#93024: revalidate:0 keeps
++            // /_global-error out of staticPaths so the buggy prerender step
++            // is skipped. Remove once the fix lands in next stable >= 16.3.
++            appConfig: { revalidate: 0 }
+         };
+     }
+     await (0, _createincrementalcache.createIncrementalCache)({
+diff --git a/node_modules/next/dist/esm/build/utils.js b/node_modules/next/dist/esm/build/utils.js
+index 50cda1b..f918379 100644
+--- a/node_modules/next/dist/esm/build/utils.js
++++ b/node_modules/next/dist/esm/build/utils.js
+@@ -388,7 +388,10 @@ export async function isPageStatic({ dir, page, distDir, configFileName, httpAge
+             hasStaticProps: false,
+             hasServerProps: false,
+             isNextImageImported: false,
+-            appConfig: {}
++            // Workaround for vercel/next.js#93024: revalidate:0 keeps
++            // /_global-error out of staticPaths so the buggy prerender step
++            // is skipped. Remove once the fix lands in next stable >= 16.3.
++            appConfig: { revalidate: 0 }
+         };
+     }
+     await createIncrementalCache({
