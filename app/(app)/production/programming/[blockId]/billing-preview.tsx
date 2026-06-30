@@ -12,7 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { pickBlurb, type ActSubmission } from "./act-marketing"
+import { pickStr, type ActSubmission } from "./act-marketing"
 
 type Act = {
   submission: ActSubmission
@@ -38,16 +38,16 @@ function buildCopy({
   if (host.trim()) lines.push(`Hosted by ${host.trim()}.`)
   if (lines.length > 0) lines.push("")
 
-  const billed = acts.map((a) => {
+  acts.forEach((a, i) => {
     const name = a.submission.name?.trim() || "Untitled"
-    const blurb = pickBlurb(a.submission)
-    return blurb ? `${name} — ${blurb}` : name
+    const location = pickStr(a.submission.data, "Location")
+    const description =
+      pickStr(a.submission.data, "Show Description") ??
+      pickStr(a.submission.data, "GroupAct Bio")
+    if (i > 0) lines.push("")
+    lines.push(location ? `${name} • ${location}` : name)
+    if (description) lines.push(description)
   })
-
-  if (billed.length > 0) {
-    lines.push("Featuring:")
-    for (const b of billed) lines.push(`• ${b}`)
-  }
 
   return lines.join("\n").trim()
 }
