@@ -2,9 +2,15 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { Check, Search, Users } from "lucide-react"
+import { AlertTriangle, Check, Search, Star, Users } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { fitForShift } from "@/lib/volunteer-availability"
+import type {
+  Fit,
+  FitStatus,
+  VolunteerAvailability,
+} from "@/lib/volunteer-availability"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -18,10 +24,20 @@ import type { RoleRow, ShiftRow, VolunteerRow } from "./types"
 
 type SubmitResult = { ok: true; data: unknown } | { ok: false; error: string }
 
+// Sort order: best fit first. Assigned-but-conflicting people still surface
+// near the top so you can see and resolve them.
+const STATUS_RANK: Record<FitStatus, number> = {
+  available: 0,
+  time: 1,
+  unknown: 2,
+  day: 3,
+}
+
 export function AssignDialog({
   shift,
   rolesByKey,
   volunteers,
+  availability,
   currentAssignments,
   onClose,
   onSubmit,
@@ -29,6 +45,7 @@ export function AssignDialog({
   shift: ShiftRow | null
   rolesByKey: Map<string, RoleRow>
   volunteers: VolunteerRow[]
+  availability: Record<string, VolunteerAvailability>
   currentAssignments: string[]
   onClose: () => void
   onSubmit: (volunteerIds: string[]) => Promise<SubmitResult>
@@ -38,6 +55,7 @@ export function AssignDialog({
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState("")
+  const [availableOnly, setAvailableOnly] = useState(false)
   const [lastShiftId, setLastShiftId] = useState<string | null>(null)
 
   // Snap selection to the active shift when it changes. We don't bother
@@ -47,20 +65,50 @@ export function AssignDialog({
     setLastShiftId(shift.id)
     setSelected(new Set(currentAssignments))
     setQuery("")
+    setAvailableOnly(false)
   }
 
   const role = shift ? rolesByKey.get(shift.role_key) : undefined
   const required = shift?.required_count ?? 0
   const overfilled = selected.size > required
 
-  const filtered = useMemo(() => {
+  // Pair each volunteer with their fit for this shift, then filter + sort so
+  // the best matches lead. Selected people are always kept visible.
+  const ranked = useMemo(() => {
+    if (!shift) return []
     const q = query.trim().toLowerCase()
-    if (!q) return volunteers
-    return volunteers.filter((v) => {
-      const hay = `${v.name ?? ""} ${v.email ?? ""}`.toLowerCase()
-      return hay.includes(q)
+    const withFit = volunteers.map((v) => {
+      const av = availability[v.id]
+      const fit: Fit | null = av ? fitForShift(av, shift) : null
+      return { v, fit }
     })
-  }, [volunteers, query])
+    const matched = withFit.filter(({ v, fit }) => {
+      if (q) {
+        const hay = `${v.name ?? ""} ${v.email ?? ""}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      if (availableOnly && !selected.has(v.id)) {
+        if (!fit || fit.status !== "available") return false
+      }
+      return true
+    })
+    return matched.sort((a, b) => {
+      const ra = a.fit ? STATUS_RANK[a.fit.status] : STATUS_RANK.unknown
+      const rb = b.fit ? STATUS_RANK[b.fit.status] : STATUS_RANK.unknown
+      if (ra !== rb) return ra - rb
+      // Within a fit tier, role-interested first.
+      const ia = a.fit?.roleInterested ? 0 : 1
+      const ib = b.fit?.roleInterested ? 0 : 1
+      if (ia !== ib) return ia - ib
+      return (a.v.name ?? a.v.email ?? "").localeCompare(b.v.name ?? b.v.email ?? "")
+    })
+  }, [volunteers, availability, shift, query, availableOnly, selected])
+
+  const availableCount = useMemo(
+    () =>
+      ranked.filter(({ fit }) => fit?.status === "available").length,
+    [ranked],
+  )
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -129,15 +177,31 @@ export function AssignDialog({
               )}
             </div>
 
-            <div className="relative">
-              <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search volunteers by name or email…"
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search volunteers by name or email…"
+                  disabled={pending}
+                  className="pl-8"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setAvailableOnly((p) => !p)}
                 disabled={pending}
-                className="pl-8"
-              />
+                className={cn(
+                  "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium tabular-nums transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2",
+                  availableOnly
+                    ? "bg-emerald-600 border-emerald-600 text-white"
+                    : "bg-white/70 border-slate-200 text-slate-600 hover:bg-white",
+                )}
+                title="Show only volunteers free at this day & time"
+              >
+                Available {availableCount}
+              </button>
             </div>
 
             {volunteers.length === 0 ? (
@@ -149,18 +213,25 @@ export function AssignDialog({
                   Import a volunteer CSV on the Upload page to get started.
                 </p>
               </div>
-            ) : filtered.length === 0 ? (
+            ) : ranked.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-300 bg-white/40 p-6 text-center">
                 <p className="text-sm text-slate-700">
-                  No volunteers match{" "}
-                  <span className="font-mono">&ldquo;{query}&rdquo;</span>.
+                  {availableOnly
+                    ? "No unassigned volunteers are free at this day & time."
+                    : (
+                      <>
+                        No volunteers match{" "}
+                        <span className="font-mono">&ldquo;{query}&rdquo;</span>.
+                      </>
+                    )}
                 </p>
               </div>
             ) : (
               <ul className="max-h-72 overflow-auto divide-y divide-slate-200/60 rounded-xl border border-slate-200/70 bg-white/60">
-                {filtered.map((v) => {
+                {ranked.map(({ v, fit }) => {
                   const checked = selected.has(v.id)
                   const name = v.name ?? v.email?.split("@")[0] ?? "Unknown"
+                  const note = availability[v.id]?.note
                   return (
                     <li key={v.id}>
                       <button
@@ -181,15 +252,30 @@ export function AssignDialog({
                           <Check className="h-2.5 w-2.5" strokeWidth={3} />
                         </span>
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-slate-900 truncate">
-                            {name}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-medium text-slate-900 truncate">
+                              {name}
+                            </span>
+                            {fit?.roleInterested && (
+                              <Star
+                                className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400"
+                                aria-label="Interested in this role"
+                              />
+                            )}
                           </div>
-                          {v.email && (
-                            <div className="text-xs text-slate-500 truncate">
-                              {v.email}
+                          {note ? (
+                            <div className="text-[11px] text-slate-500 truncate" title={note}>
+                              {note}
                             </div>
+                          ) : (
+                            v.email && (
+                              <div className="text-xs text-slate-500 truncate">
+                                {v.email}
+                              </div>
+                            )
                           )}
                         </div>
+                        <FitBadge fit={fit} />
                       </button>
                     </li>
                   )
@@ -214,5 +300,48 @@ export function AssignDialog({
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+// Small badge summarizing how a volunteer's sign-up availability lines up with
+// the shift's day and time-of-day.
+function FitBadge({ fit }: { fit: Fit | null }) {
+  if (!fit || fit.status === "unknown") {
+    return (
+      <span className="shrink-0 rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 text-[10px] font-medium">
+        No info
+      </span>
+    )
+  }
+  const meta: Record<
+    Exclude<FitStatus, "unknown">,
+    { label: string; cls: string; icon?: boolean }
+  > = {
+    available: {
+      label: "Available",
+      cls: "bg-emerald-100 text-emerald-800",
+    },
+    time: {
+      label: "Other time",
+      cls: "bg-amber-100 text-amber-900",
+      icon: true,
+    },
+    day: {
+      label: "Not this day",
+      cls: "bg-rose-100 text-rose-800",
+      icon: true,
+    },
+  }
+  const m = meta[fit.status]
+  return (
+    <span
+      className={cn(
+        "shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
+        m.cls,
+      )}
+    >
+      {m.icon && <AlertTriangle className="h-2.5 w-2.5" />}
+      {m.label}
+    </span>
   )
 }

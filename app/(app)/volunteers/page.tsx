@@ -1,20 +1,32 @@
 import { createClient } from "@/lib/supabase/server"
+import { PageHeader } from "@/components/ui/page-header"
+import { parseAvailability } from "@/lib/volunteer-availability"
+import type { VolunteerAvailability } from "@/lib/volunteer-availability"
 import { VolunteersShell } from "./volunteers-shell"
 import type {
   AssignmentRow,
   RoleRow,
   ShiftRow,
+  ShowBlockRow,
   VolunteerRow,
 } from "./types"
 
 export default async function VolunteersPage() {
   const supabase = await createClient()
 
+  // The published schedule is the one to staff against.
+  const { data: publishedDraft } = await supabase
+    .from("programming_drafts")
+    .select("id")
+    .eq("is_published", true)
+    .maybeSingle()
+
   const [
     { data: roles },
     { data: shifts },
     { data: assignments },
     { data: volunteers },
+    { data: blocks },
   ] = await Promise.all([
     supabase
       .from("volunteer_roles")
@@ -33,10 +45,18 @@ export default async function VolunteersPage() {
       .select("shift_id, volunteer_id, assigned_at"),
     supabase
       .from("submissions")
-      .select("id, name, email")
+      .select("id, name, email, data")
       .eq("type", "volunteer")
       .is("deleted_at", null)
       .order("name", { ascending: true, nullsFirst: false }),
+    publishedDraft
+      ? supabase
+          .from("show_blocks")
+          .select("id, day, start_time, end_time, title, location, kind")
+          .eq("draft_id", publishedDraft.id)
+          .order("day", { ascending: true })
+          .order("start_time", { ascending: true })
+      : Promise.resolve({ data: [] as ShowBlockRow[] }),
   ])
 
   const roleRows: RoleRow[] = (roles ?? []).map((r) => ({
@@ -67,20 +87,41 @@ export default async function VolunteersPage() {
     email: v.email,
   }))
 
+  // Parse each volunteer's sign-up answers into structured availability,
+  // keyed by id for the shell to cross-reference against shifts.
+  const availability: Record<string, VolunteerAvailability> = {}
+  for (const v of volunteers ?? []) {
+    availability[v.id] = parseAvailability(
+      v.data as Record<string, unknown> | null,
+    )
+  }
+
+  const showRows: ShowBlockRow[] = (blocks ?? []).map((b) => ({
+    id: b.id,
+    day: b.day,
+    start_time: b.start_time,
+    end_time: b.end_time,
+    title: b.title,
+    location: b.location,
+    kind: b.kind,
+  }))
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Volunteers</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Schedule shifts, assign volunteers, and keep an eye on coverage.
-        </p>
-      </div>
+      <PageHeader
+        kicker="Volunteers"
+        title="Crew"
+        accent="schedule"
+        description="Schedule shifts against the show calendar, assign volunteers by availability, and keep an eye on coverage."
+      />
 
       <VolunteersShell
         roles={roleRows}
         shifts={shiftRows}
         assignments={assignmentRows}
         volunteers={volunteerRows}
+        shows={showRows}
+        availability={availability}
       />
     </div>
   )

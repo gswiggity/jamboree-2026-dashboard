@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   Calendar,
@@ -15,6 +16,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { fitForShift } from "@/lib/volunteer-availability"
+import type { VolunteerAvailability } from "@/lib/volunteer-availability"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -30,10 +33,12 @@ import {
 } from "./actions"
 import { ShiftDialog } from "./shift-dialog"
 import { AssignDialog } from "./assign-dialog"
+import { Roster } from "./roster"
 import type {
   AssignmentRow,
   RoleRow,
   ShiftRow,
+  ShowBlockRow,
   VolunteerRow,
 } from "./types"
 
@@ -42,6 +47,8 @@ type ShellProps = {
   shifts: ShiftRow[]
   assignments: AssignmentRow[]
   volunteers: VolunteerRow[]
+  shows: ShowBlockRow[]
+  availability: Record<string, VolunteerAvailability>
 }
 
 export function VolunteersShell({
@@ -49,6 +56,8 @@ export function VolunteersShell({
   shifts,
   assignments,
   volunteers,
+  shows,
+  availability,
 }: ShellProps) {
   const [editingShift, setEditingShift] = useState<ShiftRow | null>(null)
   const [creatingShift, setCreatingShift] = useState(false)
@@ -101,6 +110,12 @@ export function VolunteersShell({
       <Tabs defaultValue="schedule" className="gap-5">
         <TabsList>
           <TabsTrigger value="schedule">Schedule</TabsTrigger>
+          <TabsTrigger value="roster">
+            Roster
+            <span className="ml-1.5 text-slate-400 font-normal tabular-nums">
+              {volunteers.length}
+            </span>
+          </TabsTrigger>
           <TabsTrigger value="roles">Roles</TabsTrigger>
         </TabsList>
 
@@ -128,7 +143,7 @@ export function VolunteersShell({
             </Button>
           </div>
 
-          {shifts.length === 0 ? (
+          {shifts.length === 0 && shows.length === 0 ? (
             <EmptyState
               title="No shifts yet."
               body={
@@ -140,13 +155,24 @@ export function VolunteersShell({
           ) : (
             <ScheduleByDay
               shifts={shifts}
+              shows={shows}
               rolesByKey={rolesByKey}
               assignmentsByShift={assignmentsByShift}
               volunteersById={volunteersById}
+              availability={availability}
+              volunteers={volunteers}
               onEdit={setEditingShift}
               onAssign={setAssigningShift}
             />
           )}
+        </TabsContent>
+
+        <TabsContent value="roster" className="space-y-4">
+          <Roster
+            volunteers={volunteers}
+            availability={availability}
+            rolesByKey={rolesByKey}
+          />
         </TabsContent>
 
         <TabsContent value="roles" className="space-y-4">
@@ -181,6 +207,7 @@ export function VolunteersShell({
         shift={assigningShift}
         rolesByKey={rolesByKey}
         volunteers={volunteers}
+        availability={availability}
         currentAssignments={
           assigningShift
             ? (assignmentsByShift.get(assigningShift.id) ?? [])
@@ -278,40 +305,58 @@ function Stat({
 }
 
 // ——————————————————————————————————————————————————————————
-// Schedule — shifts grouped by day
+// Schedule — show calendar + shifts, grouped by day
 // ——————————————————————————————————————————————————————————
 
 function ScheduleByDay({
   shifts,
+  shows,
   rolesByKey,
   assignmentsByShift,
   volunteersById,
+  availability,
+  volunteers,
   onEdit,
   onAssign,
 }: {
   shifts: ShiftRow[]
+  shows: ShowBlockRow[]
   rolesByKey: Map<string, RoleRow>
   assignmentsByShift: Map<string, string[]>
   volunteersById: Map<string, VolunteerRow>
+  availability: Record<string, VolunteerAvailability>
+  volunteers: VolunteerRow[]
   onEdit: (shift: ShiftRow) => void
   onAssign: (shift: ShiftRow) => void
 }) {
-  // Group by day → ordered by start_time (already sorted server-side).
+  // Build one section per day, drawn from the union of show days and shift
+  // days so the schedule shows even before any shifts exist for it.
   const days = useMemo(() => {
-    const m = new Map<string, ShiftRow[]>()
+    const shiftsByDay = new Map<string, ShiftRow[]>()
+    const showsByDay = new Map<string, ShowBlockRow[]>()
     for (const s of shifts) {
-      const arr = m.get(s.day)
+      const arr = shiftsByDay.get(s.day)
       if (arr) arr.push(s)
-      else m.set(s.day, [s])
+      else shiftsByDay.set(s.day, [s])
     }
-    return Array.from(m.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([day, shiftsOnDay]) => ({ day, shifts: shiftsOnDay }))
-  }, [shifts])
+    for (const b of shows) {
+      const arr = showsByDay.get(b.day)
+      if (arr) arr.push(b)
+      else showsByDay.set(b.day, [b])
+    }
+    const allDays = new Set<string>([...shiftsByDay.keys(), ...showsByDay.keys()])
+    return Array.from(allDays)
+      .sort((a, b) => a.localeCompare(b))
+      .map((day) => ({
+        day,
+        shifts: shiftsByDay.get(day) ?? [],
+        shows: showsByDay.get(day) ?? [],
+      }))
+  }, [shifts, shows])
 
   return (
     <div className="space-y-6">
-      {days.map(({ day, shifts: dayShifts }) => (
+      {days.map(({ day, shifts: dayShifts, shows: dayShows }) => (
         <section key={day} className="space-y-2">
           <div className="flex items-center gap-2 px-1">
             <Calendar className="h-3.5 w-3.5 text-slate-500" />
@@ -322,20 +367,60 @@ function ScheduleByDay({
               {dayShifts.length} shift{dayShifts.length === 1 ? "" : "s"}
             </span>
           </div>
-          <ul className="space-y-2">
-            {dayShifts.map((s) => (
-              <ShiftCard
-                key={s.id}
-                shift={s}
-                role={rolesByKey.get(s.role_key)}
-                assignedIds={assignmentsByShift.get(s.id) ?? []}
-                volunteersById={volunteersById}
-                onEdit={() => onEdit(s)}
-                onAssign={() => onAssign(s)}
-              />
-            ))}
-          </ul>
+
+          {dayShows.length > 0 && <ShowStrip shows={dayShows} />}
+
+          {dayShifts.length === 0 ? (
+            <p className="text-[11px] text-slate-400 px-1 italic">
+              No volunteer shifts scheduled for this day yet.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {dayShifts.map((s) => (
+                <ShiftCard
+                  key={s.id}
+                  shift={s}
+                  role={rolesByKey.get(s.role_key)}
+                  assignedIds={assignmentsByShift.get(s.id) ?? []}
+                  volunteersById={volunteersById}
+                  availability={availability}
+                  volunteers={volunteers}
+                  onEdit={() => onEdit(s)}
+                  onAssign={() => onAssign(s)}
+                />
+              ))}
+            </ul>
+          )}
         </section>
+      ))}
+    </div>
+  )
+}
+
+// Read-only reference rail of the day's programmed blocks (shows / workshops /
+// events) so you can see what's happening when carving out shifts.
+function ShowStrip({ shows }: { shows: ShowBlockRow[] }) {
+  const kindStyle: Record<string, string> = {
+    show: "bg-blue-50/80 border-blue-200/70 text-blue-900",
+    workshop: "bg-violet-50/80 border-violet-200/70 text-violet-900",
+    event: "bg-slate-50/80 border-slate-200/70 text-slate-700",
+  }
+  return (
+    <div className="flex flex-wrap gap-1.5 px-1">
+      {shows.map((b) => (
+        <span
+          key={b.id}
+          title={[b.title ?? "", b.location ?? ""].filter(Boolean).join(" · ")}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] max-w-[14rem]",
+            kindStyle[b.kind ?? "event"] ?? kindStyle.event,
+          )}
+        >
+          <span className="tabular-nums font-medium shrink-0">
+            {formatTime(b.start_time)}
+          </span>
+          <span className="truncate">{b.title ?? "Untitled"}</span>
+        </span>
       ))}
     </div>
   )
@@ -346,6 +431,8 @@ function ShiftCard({
   role,
   assignedIds,
   volunteersById,
+  availability,
+  volunteers,
   onEdit,
   onAssign,
 }: {
@@ -353,6 +440,8 @@ function ShiftCard({
   role: RoleRow | undefined
   assignedIds: string[]
   volunteersById: Map<string, VolunteerRow>
+  availability: Record<string, VolunteerAvailability>
+  volunteers: VolunteerRow[]
   onEdit: () => void
   onAssign: () => void
 }) {
@@ -366,6 +455,24 @@ function ShiftCard({
     warn: "bg-amber-100 text-amber-900",
     alert: "bg-rose-100 text-rose-800",
   }[tone]
+
+  // Count assigned people whose availability conflicts with this shift, and how
+  // many free-and-available volunteers are still unassigned in the pool.
+  const assignedSet = new Set(assignedIds)
+  const conflicts = assignedIds.reduce((n, id) => {
+    const av = availability[id]
+    if (!av) return n
+    const f = fitForShift(av, shift)
+    return f.status === "day" || f.status === "time" ? n + 1 : n
+  }, 0)
+  const poolAvailable =
+    needed > filled
+      ? volunteers.reduce((n, v) => {
+          if (assignedSet.has(v.id)) return n
+          const av = availability[v.id]
+          return av && fitForShift(av, shift).status === "available" ? n + 1 : n
+        }, 0)
+      : 0
 
   return (
     <li className="group rounded-2xl border border-white/70 bg-white/65 backdrop-blur-xl px-4 py-3 shadow-[0_8px_28px_-18px_rgba(30,58,138,0.18)] transition hover:bg-white/80">
@@ -384,6 +491,20 @@ function ShiftCard({
               <Users className="h-3 w-3" />
               {filled}/{needed} filled
             </span>
+            {conflicts > 0 && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-rose-100 text-rose-800 px-2 py-0.5 text-[11px] font-medium"
+                title="Assigned volunteers who aren't available at this day/time per their sign-up."
+              >
+                <AlertTriangle className="h-3 w-3" />
+                {conflicts} conflict{conflicts === 1 ? "" : "s"}
+              </span>
+            )}
+            {poolAvailable > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 text-[11px] font-medium tabular-nums">
+                {poolAvailable} available
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-slate-600">
             <span className="inline-flex items-center gap-1">
@@ -412,12 +533,27 @@ function ShiftCard({
                 const v = volunteersById.get(id)
                 const name =
                   v?.name ?? v?.email?.split("@")[0] ?? "Unknown volunteer"
+                const av = availability[id]
+                const f = av ? fitForShift(av, shift) : null
+                const conflicted = f?.status === "day" || f?.status === "time"
                 return (
                   <span
                     key={id}
-                    className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-900"
-                    title={v?.email ?? undefined}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                      conflicted
+                        ? "bg-rose-50 border-rose-200 text-rose-800"
+                        : "bg-blue-50 border-blue-100 text-blue-900",
+                    )}
+                    title={
+                      conflicted
+                        ? f?.status === "day"
+                          ? `${name} isn't available this day per their sign-up.`
+                          : `${name} signed up for a different time of day.`
+                        : (v?.email ?? undefined)
+                    }
                   >
+                    {conflicted && <AlertTriangle className="h-3 w-3" />}
                     {name}
                   </span>
                 )

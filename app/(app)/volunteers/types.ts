@@ -28,3 +28,15 @@ export type VolunteerRow = {
   name: string | null
   email: string | null
 }
+
+// A block from the published programming schedule — shown on the volunteers
+// view as a read-only reference so you can carve shifts to cover real shows.
+export type ShowBlockRow = {
+  id: string
+  day: string // YYYY-MM-DD
+  start_time: string // HH:mm:ss
+  end_time: string // HH:mm:ss
+  title: string | null
+  location: string | null
+  kind: string | null // "show" | "workshop" | "event"
+}
