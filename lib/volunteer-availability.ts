@@ -23,15 +23,17 @@ const COL_PARTS = "Time availability"
 const COL_ROLES = "Which roles are you interested in"
 const COL_NOTE = "Anything else we should know"
 
-// Sign-up-form role labels → volunteer_roles.key (see migration 0024). The form
-// option "Whatever is most helpful!" is handled separately as `flexibleRole`.
-const ROLE_KEY_BY_LABEL: Record<string, string> = {
-  "front of house / check in": "front-of-house",
-  "workshop support": "workshop-support",
-  "performer support / green room": "green-room",
-  "set up & tear down": "setup-teardown",
-  "tech booth / lighting / sound": "tech-booth",
-  "admin / communication support": "admin-comms",
+// Sign-up-form role labels → operational staffing-role keys (see migration
+// 0025). One sign-up answer can map to more than one staffing role — e.g.
+// "Workshop Support" covers both workshop venues. The form option "Whatever is
+// most helpful!" is handled separately as `flexibleRole`.
+const ROLE_KEYS_BY_LABEL: Record<string, string[]> = {
+  "front of house / check in": ["door-check"],
+  "workshop support": ["proscenium", "p-p"],
+  "performer support / green room": ["green-room"],
+  "set up & tear down": ["tear-down"],
+  "tech booth / lighting / sound": ["tech"],
+  "admin / communication support": ["office-merch"],
 }
 
 const FLEXIBLE_ROLE_LABEL = "whatever is most helpful!"
@@ -75,8 +77,8 @@ function parseRoles(raw: string): { roleKeys: string[]; flexibleRole: boolean } 
       flexibleRole = true
       continue
     }
-    const key = ROLE_KEY_BY_LABEL[t]
-    if (key) keys.add(key)
+    const mapped = ROLE_KEYS_BY_LABEL[t]
+    if (mapped) for (const key of mapped) keys.add(key)
   }
   return { roleKeys: Array.from(keys), flexibleRole }
 }
