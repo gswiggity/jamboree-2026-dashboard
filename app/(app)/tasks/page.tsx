@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { PageHeader } from "@/components/ui/page-header"
 import { TasksShell, type TaskRow, type TeamMember } from "./tasks-shell"
 
 export default async function TasksPage() {
@@ -45,13 +46,12 @@ export default async function TasksPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Tasks</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Action items across the festival — assign them, give them a due
-          date, check them off when they&apos;re done.
-        </p>
-      </div>
+      <PageHeader
+        kicker="Tasks"
+        title="Punch"
+        accent="list"
+        description="Action items across the festival — assign them, give them a due date, check them off when they're done."
+      />
 
       <TasksShell tasks={rows} team={team} currentUserId={user!.id} />
     </div>

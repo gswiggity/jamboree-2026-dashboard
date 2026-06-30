@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { getActDisplayName } from "@/lib/solo-act"
+import { PageHeader } from "@/components/ui/page-header"
 import { DocumentsShell, type DocumentRow } from "./documents-shell"
 import { DOCUMENTS_BUCKET } from "./constants"
 
@@ -117,13 +118,12 @@ export default async function DocumentsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Documents</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Shared assets for the team — contracts, agreements, marketing files,
-          invoices, and anything else worth one source of truth.
-        </p>
-      </div>
+      <PageHeader
+        kicker="Documents"
+        title="Shared"
+        accent="library"
+        description="Shared assets for the team — contracts, agreements, marketing files, invoices, and anything else worth one source of truth."
+      />
 
       <DocumentsShell documents={rows} categories={categories} />
     </div>

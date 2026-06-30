@@ -23,6 +23,8 @@ import {
   type Counts,
 } from "@/lib/lineup-tiers"
 import { EmailedToggle } from "@/components/emailed-toggle"
+import { ActStatusControl } from "@/components/act-status-control"
+import type { ActStatus } from "@/lib/act-status"
 import { ConversationsCard } from "./conversations-card"
 import {
   SubmissionImagesCard,
@@ -42,6 +44,7 @@ type SubmissionRow = {
   deleted_at: string | null
   first_emailed_at: string | null
   first_emailed_by: string | null
+  act_status: ActStatus | null
 }
 
 type TeamJudgment = {
@@ -342,7 +345,11 @@ export async function ActProfile({
               {submission.email}
             </a>
           )}
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <ActStatusControl
+              submissionId={submission.id}
+              initialStatus={submission.act_status ?? null}
+            />
             <EmailedToggle
               submissionId={submission.id}
               initialEmailedAt={submission.first_emailed_at ?? null}

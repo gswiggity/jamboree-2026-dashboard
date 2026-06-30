@@ -347,7 +347,7 @@ export default async function BlockProgrammingPage({
           {dayLabel} · {formatTime(block.start_time)} – {formatTime(block.end_time)}
           {block.location ? ` · ${block.location}` : ""}
         </div>
-        <h1 className="text-3xl font-semibold tracking-tight mt-1">
+        <h1 className="font-[family-name:var(--font-serif)] text-4xl text-blue-950 leading-[1.05] mt-1">
           {block.title ?? "Untitled block"}
         </h1>
       </div>

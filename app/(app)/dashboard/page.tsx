@@ -3,10 +3,13 @@ import {
   ArrowRight,
   ArrowUpRight,
   CalendarDays,
+  CalendarRange,
   CheckSquare,
+  Clapperboard,
   FileText,
   LayoutGrid,
-  Mic2,
+  Mail,
+  Send,
   Sparkles,
   TrendingUp,
   Users,
@@ -14,6 +17,8 @@ import {
 import { createClient } from "@/lib/supabase/server"
 import { cn } from "@/lib/utils"
 import { nextPhase, resolveCurrentPhase, type Phase } from "@/lib/phases"
+import { classify } from "@/lib/lineup-tiers"
+import { getActDisplayName } from "@/lib/solo-act"
 import { Notepad, type NoteAuthor, type NoteRow } from "./notepad"
 
 const FESTIVAL = {
@@ -42,6 +47,42 @@ function formatDateRange(start: Date, end: Date) {
   return `${start.toLocaleDateString()} – ${end.toLocaleDateString()}`
 }
 
+type FeedKind = "email" | "placement" | "programming"
+type FeedEvent = {
+  key: string
+  kind: FeedKind
+  actName: string
+  detail: string
+  at: string
+}
+
+// Supabase nested selects type a to-one relation as either an object or a
+// single-element array depending on inference — normalize both to one row.
+function firstRel<T>(rel: T | T[] | null | undefined): T | null {
+  if (!rel) return null
+  return Array.isArray(rel) ? (rel[0] ?? null) : rel
+}
+
+function formatBlockDay(day: string): string {
+  const d = new Date(`${day}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return day
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+}
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ""
+  const diffMs = Date.now() - then
+  const mins = Math.round(diffMs / 60000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.round(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
 function bucketSubmissionsByDay(dates: (string | null)[], days: number): number[] {
   const now = new Date()
   const buckets = Array(days).fill(0)
@@ -65,8 +106,6 @@ export default async function DashboardPage() {
 
   const [
     { data: submissions },
-    { data: myJudgments },
-    { data: recentJudgments },
     { data: profilesData, count: profilesCount },
     { data: phaseRow },
     { data: phases },
@@ -76,17 +115,16 @@ export default async function DashboardPage() {
     { count: lineupUnsortedCount },
     { count: lineupTotalCount },
     { count: documentsCount },
+    { data: actVerdictRows },
+    { data: emailEventRows },
+    { data: placementEventRows },
+    { data: programmingEventRows },
+    { data: progDraft },
   ] = await Promise.all([
     supabase
       .from("submissions")
       .select("id, type, submitted_at")
       .is("deleted_at", null),
-    supabase.from("judgments").select("submission_id, verdict").eq("user_id", user!.id),
-    supabase
-      .from("judgments")
-      .select("id, verdict, updated_at, user_id, profiles!judgments_user_id_fkey(email)")
-      .order("updated_at", { ascending: false })
-      .limit(5),
     supabase
       .from("profiles")
       .select("id, full_name, email", { count: "exact" }),
@@ -112,6 +150,42 @@ export default async function DashboardPage() {
       .is("column_id", null),
     supabase.from("lineup_cards").select("id", { count: "exact", head: true }),
     supabase.from("documents").select("id", { count: "exact", head: true }),
+    // Act consensus tiers — used to find "locked" (Team yes) acts that still
+    // need a first outreach email.
+    supabase
+      .from("submission_verdict_counts")
+      .select("submission_id, yes_count, no_count, maybe_count, total_judgments")
+      .eq("type", "act"),
+    // Recent-actions feed source 1: acts whose first outreach email was sent.
+    supabase
+      .from("submissions")
+      .select("id, name, email, data, first_emailed_at, first_emailed_by")
+      .not("first_emailed_at", "is", null)
+      .is("deleted_at", null)
+      .order("first_emailed_at", { ascending: false })
+      .limit(8),
+    // Source 2: acts placed into a board column (column_id set).
+    supabase
+      .from("lineup_cards")
+      .select("submission_id, updated_at, lineup_columns(title)")
+      .not("column_id", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(8),
+    // Source 3: acts slotted into a programming show block.
+    supabase
+      .from("show_block_submissions")
+      .select("submission_id, created_at, show_blocks(title, day)")
+      .order("created_at", { ascending: false })
+      .limit(8),
+    // Programming readiness: the active draft (published preferred, else most
+    // recently updated). Block fill is resolved in the second batch below.
+    supabase
+      .from("programming_drafts")
+      .select("id")
+      .order("is_published", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ])
 
   const counts = { act: 0, volunteer: 0, workshop: 0 }
@@ -119,8 +193,6 @@ export default async function DashboardPage() {
     if (s.type in counts) counts[s.type as keyof typeof counts]++
   }
   const totalSubmissions = (submissions ?? []).length
-  const totalJudged = (myJudgments ?? []).filter((j) => j.verdict !== null).length
-  const unjudged = Math.max(0, totalSubmissions - totalJudged)
   const teamCount = profilesCount ?? 0
   const openTasks = openTasksCount ?? 0
   const totalTasks = totalTasksCount ?? 0
@@ -146,109 +218,236 @@ export default async function DashboardPage() {
   )
   const trendThisWeek = submissionTrend.slice(-7).reduce((a, b) => a + b, 0)
 
+  // ---- Act-management triage ----------------------------------------------
+  // "Locked" = team-yes consensus (2+ yes, 0 no). These acts are ready for
+  // outreach; the tile surfaces how many still have no first email sent.
+  const lockedActIds = (actVerdictRows ?? [])
+    .filter(
+      (r) =>
+        r.submission_id &&
+        classify({
+          yes_count: r.yes_count ?? 0,
+          no_count: r.no_count ?? 0,
+          maybe_count: r.maybe_count ?? 0,
+          total_judgments: r.total_judgments ?? 0,
+        }) === "locked",
+    )
+    .map((r) => r.submission_id as string)
+
+  // Submission ids referenced by the placement / programming feed sources, so
+  // we can resolve display names in a single round-trip.
+  const feedSubIds = Array.from(
+    new Set([
+      ...(placementEventRows ?? []).map((r) => r.submission_id),
+      ...(programmingEventRows ?? []).map((r) => r.submission_id),
+    ]),
+  )
+  const emailerIds = Array.from(
+    new Set(
+      (emailEventRows ?? [])
+        .map((r) => r.first_emailed_by)
+        .filter((v): v is string => v !== null),
+    ),
+  )
+
+  const [
+    { count: actsToEmailCount },
+    { data: feedSubs },
+    { data: emailerProfiles },
+    { data: progBlocks },
+  ] = await Promise.all([
+    lockedActIds.length > 0
+      ? supabase
+          .from("submissions")
+          .select("id", { count: "exact", head: true })
+          .in("id", lockedActIds)
+          .is("first_emailed_at", null)
+          .is("deleted_at", null)
+      : Promise.resolve({ count: 0 }),
+    feedSubIds.length > 0
+      ? supabase
+          .from("submissions")
+          .select("id, name, email, data")
+          .in("id", feedSubIds)
+          .is("deleted_at", null)
+      : Promise.resolve({
+          data: [] as Array<{
+            id: string
+            name: string | null
+            email: string | null
+            data: unknown
+          }>,
+        }),
+    emailerIds.length > 0
+      ? supabase.from("profiles").select("id, full_name, email").in("id", emailerIds)
+      : Promise.resolve({
+          data: [] as Array<{
+            id: string
+            full_name: string | null
+            email: string | null
+          }>,
+        }),
+    progDraft
+      ? supabase.from("show_blocks").select("id, kind").eq("draft_id", progDraft.id)
+      : Promise.resolve({
+          data: [] as Array<{ id: string; kind: string }>,
+        }),
+  ])
+
+  const actsToEmail = actsToEmailCount ?? 0
+
+  // Programming readiness against the active draft. A show block (kind=show, or
+  // any block that isn't a workshop/event) with no acts assigned still "needs
+  // acts"; a workshop block with nothing assigned is "unbooked". Event blocks
+  // carry no submissions, so they're excluded from both counts.
+  const progBlockList = progBlocks ?? []
+  let showsNeedingActs = 0
+  let workshopsUnbooked = 0
+  if (progBlockList.length > 0) {
+    const { data: progTags } = await supabase
+      .from("show_block_submissions")
+      .select("block_id")
+      .in(
+        "block_id",
+        progBlockList.map((b) => b.id),
+      )
+    const filledBlocks = new Set((progTags ?? []).map((t) => t.block_id))
+    for (const b of progBlockList) {
+      if (filledBlocks.has(b.id)) continue
+      if (b.kind === "workshop") workshopsUnbooked++
+      else if (b.kind !== "event") showsNeedingActs++
+    }
+  }
+
+  const displayNameById = new Map<string, string>()
+  for (const s of [...(emailEventRows ?? []), ...(feedSubs ?? [])]) {
+    displayNameById.set(
+      s.id,
+      getActDisplayName({
+        name: s.name,
+        data: (s.data as Record<string, unknown>) ?? null,
+        email: s.email,
+      }).display,
+    )
+  }
+  const emailerNameById = new Map<string, string>()
+  for (const p of emailerProfiles ?? []) {
+    emailerNameById.set(p.id, p.full_name ?? p.email ?? "Teammate")
+  }
+
+  // Merge the three non-verdict activity sources into one recency-sorted feed.
+  const feed: FeedEvent[] = []
+  for (const s of emailEventRows ?? []) {
+    if (!s.first_emailed_at) continue
+    const by = s.first_emailed_by ? emailerNameById.get(s.first_emailed_by) : null
+    feed.push({
+      key: `email-${s.id}`,
+      kind: "email",
+      actName: displayNameById.get(s.id) ?? s.name ?? "An act",
+      detail: by ? `Outreach email sent by ${by}` : "Outreach email sent",
+      at: s.first_emailed_at,
+    })
+  }
+  for (const r of placementEventRows ?? []) {
+    // Skip cards whose act was deleted (no resolved display name).
+    const actName = displayNameById.get(r.submission_id)
+    if (!actName) continue
+    const col = firstRel<{ title: string | null }>(r.lineup_columns)?.title?.trim()
+    feed.push({
+      key: `place-${r.submission_id}-${r.updated_at}`,
+      kind: "placement",
+      actName,
+      detail: col ? `Placed in “${col}” on the board` : "Moved on the board",
+      at: r.updated_at,
+    })
+  }
+  for (const r of programmingEventRows ?? []) {
+    const actName = displayNameById.get(r.submission_id)
+    if (!actName) continue
+    const block = firstRel<{ title: string | null; day: string | null }>(r.show_blocks)
+    const label =
+      block?.title?.trim() ||
+      (block?.day ? `the ${formatBlockDay(block.day)} show` : "a show block")
+    feed.push({
+      key: `prog-${r.submission_id}-${r.created_at}`,
+      kind: "programming",
+      actName,
+      detail: `Slotted into ${label}`,
+      at: r.created_at,
+    })
+  }
+  feed.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+  const recentActions = feed.slice(0, 6)
+
   const days = daysUntil(FESTIVAL.start)
   const phaseList: Phase[] = phases ?? []
   const phase = resolveCurrentPhase(phaseList, phaseRow?.phase)
   const upcomingPhase = nextPhase(phaseList, phase.key)
-  const judgingPct = counts.act > 0 ? Math.round((totalJudged / counts.act) * 100) : 0
   const ticketPct = Math.round((TICKET_STUBS.ticketSales / TICKET_STUBS.ticketGoal) * 100)
   // The countdown ring visualises "time elapsed in the 365-day lead-up" — capped 0..100.
   const countdownPct = Math.min(100, Math.max(0, ((365 - days) / 365) * 100))
 
   return (
     <div className="space-y-10">
-      {/* HERO BENTO */}
-      <section className="grid grid-cols-12 auto-rows-[minmax(140px,auto)] gap-3">
-        <Tile className="col-span-12 lg:col-span-7 row-span-2 !p-0 overflow-hidden">
-          <div className="relative h-full p-7 flex flex-col justify-between bg-gradient-to-br from-white/60 via-white/40 to-sky-100/50">
-            <div>
-              <p className="text-[11px] tracking-[0.3em] text-blue-900 uppercase font-semibold mb-4">
-                {FESTIVAL.tagline}
-              </p>
-              <h1 className="font-[family-name:var(--font-serif)] text-[3.5rem] md:text-[5.5rem] leading-[0.9] tracking-tight text-blue-950">
-                Swear Jar <br />
-                <span className="italic text-[#2340d9]">Jamboree</span>
-              </h1>
-            </div>
-            <div className="flex items-center gap-3 text-sm text-slate-700">
-              <CalendarDays className="h-4 w-4 text-slate-500" />
-              <span className="font-[family-name:var(--font-serif)] italic text-lg">
-                {formatDateRange(FESTIVAL.start, FESTIVAL.end)}
-              </span>
-            </div>
-            <svg
-              className="absolute -right-10 -bottom-10 w-64 h-64 opacity-40"
-              viewBox="0 0 200 200"
-              fill="none"
-            >
-              <circle cx="100" cy="100" r="80" stroke="#2340d9" strokeWidth="0.5" strokeDasharray="2 6" />
-              <circle cx="100" cy="100" r="50" stroke="#2340d9" strokeWidth="0.5" strokeDasharray="2 6" />
-              <circle cx="100" cy="100" r="25" stroke="#2340d9" strokeWidth="0.5" strokeDasharray="2 6" />
-            </svg>
+      {/* SLIM HERO STRIP — brand on the left, festival meta on the right */}
+      <section className="flex flex-wrap items-center justify-between gap-6">
+        <div className="min-w-0">
+          <p className="text-[11px] tracking-[0.3em] text-blue-900 uppercase font-semibold mb-2">
+            {FESTIVAL.tagline}
+          </p>
+          <h1 className="font-[family-name:var(--font-serif)] text-4xl sm:text-5xl text-blue-950 leading-[1.05]">
+            Swear Jar{" "}
+            <span className="italic text-brand">Jamboree</span>
+          </h1>
+          <div className="flex items-center gap-2 text-sm text-slate-700 mt-3">
+            <CalendarDays className="h-4 w-4 text-slate-500" aria-hidden="true" />
+            <span className="font-[family-name:var(--font-serif)] italic text-base">
+              {formatDateRange(FESTIVAL.start, FESTIVAL.end)}
+            </span>
           </div>
-        </Tile>
-
-        <Tile className="col-span-6 lg:col-span-3 row-span-2">
-          <div className="flex flex-col h-full justify-between">
-            <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-slate-600">
-              Time to kickoff
-            </div>
-            <div className="relative flex-1 flex items-center justify-center">
-              <ProgressRing percent={countdownPct} size={160} stroke={8} />
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <div className="font-mono text-5xl tabular-nums font-semibold text-blue-950 leading-none">
+        </div>
+        <div className="flex items-stretch gap-3 shrink-0">
+          <Tile className="!p-4 min-w-[160px]">
+            <div className="flex items-center gap-3 h-full">
+              <ProgressRing
+                percent={countdownPct}
+                size={56}
+                stroke={5}
+                ariaLabel={`${days} days until kickoff`}
+              />
+              <div>
+                <div className="font-mono text-2xl tabular-nums font-semibold text-blue-950 leading-none">
                   {days}
                 </div>
-                <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-slate-600 mt-1">
-                  days
+                <div className="text-[10px] uppercase tracking-[0.22em] font-semibold text-slate-600 mt-1">
+                  days to kickoff
                 </div>
               </div>
             </div>
-          </div>
-        </Tile>
-
-        <Tile className="col-span-6 lg:col-span-2">
-          <div className="flex flex-col h-full justify-between gap-3">
-            <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-slate-600">
-              Phase
-            </div>
-            <div className="flex items-center gap-2.5">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
-              </span>
-              <div className="text-sm font-semibold text-slate-900 leading-tight">
-                {phase.label}
+          </Tile>
+          <Tile className="!p-4 min-w-[160px]">
+            <div className="flex flex-col justify-between h-full gap-2">
+              <div className="text-[10px] uppercase tracking-[0.22em] font-semibold text-slate-600">
+                Phase
               </div>
-            </div>
-            <div className="text-xs text-slate-600">
-              next → {upcomingPhase?.short ?? "—"}
-            </div>
-          </div>
-        </Tile>
-
-        <Tile className="col-span-6 lg:col-span-2 !p-0 overflow-hidden">
-          <Link
-            href="/judge?type=act"
-            className="flex flex-col h-full justify-between gap-2 p-5 transition hover:bg-white/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2340d9]/40"
-          >
-            <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-slate-600">
-              Judging
-            </div>
-            <div className="flex items-center gap-3">
-              <ProgressRing percent={judgingPct} size={52} stroke={5} />
-              <div>
-                <div className="font-semibold text-slate-900 leading-none tabular-nums text-lg">
-                  {totalJudged}/{counts.act}
+              <div className="flex items-center gap-2">
+                <span
+                  className="relative flex h-2.5 w-2.5"
+                  aria-hidden="true"
+                >
+                  <span className="absolute inline-flex h-full w-full animate-ping motion-reduce:hidden rounded-full bg-emerald-400 opacity-70" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                </span>
+                <div className="text-sm font-semibold text-slate-900 leading-tight truncate">
+                  {phase.label}
                 </div>
-                <div className="text-xs text-slate-600 mt-0.5">acts judged</div>
+              </div>
+              <div className="text-xs text-slate-600">
+                next → {upcomingPhase?.short ?? "—"}
               </div>
             </div>
-            <span className="text-xs font-semibold text-[#2340d9] inline-flex items-center gap-1 group-hover:underline">
-              Enter judging <ArrowRight className="h-3 w-3" />
-            </span>
-          </Link>
-        </Tile>
+          </Tile>
+        </div>
       </section>
 
       {/* MAIN: real tiles on the left, notepad pinned to the right */}
@@ -256,31 +455,33 @@ export default async function DashboardPage() {
         <div className="col-span-12 lg:col-span-8 space-y-10">
           {/* ATTENTION */}
           <section>
-            <SectionHeader title="Needs your attention" count="3 items" />
+            <SectionHeader title="Needs your attention" count="4 items" />
             <div className="grid grid-cols-12 gap-3">
-              <Tile className="col-span-12 sm:col-span-4 !p-4">
-                <Link href="/judge?type=act" className="flex flex-col h-full gap-2 group">
+              <Tile className="col-span-12 sm:col-span-6 lg:col-span-3 !p-4">
+                <Link href="/lineup?type=act&filter=team_yes" className="flex flex-col h-full gap-2 group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">
                   <div className="flex items-center gap-2">
                     <div className="rounded-xl p-1.5 bg-blue-100 text-blue-900">
-                      <Mic2 className="h-4 w-4" />
+                      <Mail className="h-4 w-4" />
                     </div>
                     <div className="text-[10px] uppercase tracking-[0.22em] font-semibold text-blue-900">
-                      Judging
+                      Outreach
                     </div>
                   </div>
                   <h3 className="font-[family-name:var(--font-serif)] text-xl text-blue-950 leading-tight mt-1">
-                    <span className="tabular-nums">{unjudged}</span> unjudged
+                    <span className="tabular-nums">{actsToEmail}</span> to email next
                   </h3>
                   <p className="text-xs text-slate-600">
-                    Clear the queue with shortcuts.
+                    {actsToEmail > 0
+                      ? "Team-yes acts with no first email yet."
+                      : "Every team-yes act has been emailed."}
                   </p>
-                  <span className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-[#2340d9] group-hover:underline">
-                    Enter judging <ArrowRight className="h-3 w-3" />
+                  <span className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-brand group-hover:underline">
+                    Open outreach <ArrowRight className="h-3 w-3" />
                   </span>
                 </Link>
               </Tile>
-              <Tile className="col-span-12 sm:col-span-4 !p-4">
-                <Link href="/tasks" className="flex flex-col h-full gap-2 group">
+              <Tile className="col-span-12 sm:col-span-6 lg:col-span-3 !p-4">
+                <Link href="/tasks" className="flex flex-col h-full gap-2 group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">
                   <div className="flex items-center gap-2">
                     <div className="rounded-xl p-1.5 bg-emerald-100 text-emerald-900">
                       <CheckSquare className="h-4 w-4" />
@@ -297,13 +498,13 @@ export default async function DashboardPage() {
                       ? `${totalTasks - openTasks} of ${totalTasks} done.`
                       : "No tasks yet."}
                   </p>
-                  <span className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-[#2340d9] group-hover:underline">
+                  <span className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-brand group-hover:underline">
                     Open tasks <ArrowRight className="h-3 w-3" />
                   </span>
                 </Link>
               </Tile>
-              <Tile className="col-span-12 sm:col-span-4 !p-4">
-                <Link href="/lineup" className="flex flex-col h-full gap-2 group">
+              <Tile className="col-span-12 sm:col-span-6 lg:col-span-3 !p-4">
+                <Link href="/lineup" className="flex flex-col h-full gap-2 group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">
                   <div className="flex items-center gap-2">
                     <div className="rounded-xl p-1.5 bg-amber-100 text-amber-900">
                       <LayoutGrid className="h-4 w-4" />
@@ -320,8 +521,32 @@ export default async function DashboardPage() {
                       ? `${lineupTotal - lineupUnsorted} of ${lineupTotal} placed.`
                       : "No acts in lineup yet."}
                   </p>
-                  <span className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-[#2340d9] group-hover:underline">
+                  <span className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-brand group-hover:underline">
                     Open board <ArrowRight className="h-3 w-3" />
+                  </span>
+                </Link>
+              </Tile>
+              <Tile className="col-span-12 sm:col-span-6 lg:col-span-3 !p-4">
+                <Link href="/production/programming" className="flex flex-col h-full gap-2 group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-xl p-1.5 bg-violet-100 text-violet-900">
+                      <Clapperboard className="h-4 w-4" />
+                    </div>
+                    <div className="text-[10px] uppercase tracking-[0.22em] font-semibold text-violet-900">
+                      Programming
+                    </div>
+                  </div>
+                  <h3 className="font-[family-name:var(--font-serif)] text-xl text-blue-950 leading-tight mt-1">
+                    <span className="tabular-nums">{showsNeedingActs}</span>{" "}
+                    {showsNeedingActs === 1 ? "show needs" : "shows need"} acts
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    {workshopsUnbooked > 0
+                      ? `${workshopsUnbooked} workshop${workshopsUnbooked === 1 ? "" : "s"} still unbooked.`
+                      : "All workshops booked."}
+                  </p>
+                  <span className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-brand group-hover:underline">
+                    Open programming <ArrowRight className="h-3 w-3" />
                   </span>
                 </Link>
               </Tile>
@@ -333,7 +558,7 @@ export default async function DashboardPage() {
             <SectionHeader title="Festival pillars" count="3 areas" />
             <div className="grid grid-cols-12 gap-3">
               <Tile className="col-span-12 sm:col-span-8 row-span-2">
-                <Link href="/submissions" className="flex flex-col h-full gap-4 group">
+                <Link href="/submissions" className="flex flex-col h-full gap-4 group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-2">
                       <div className="rounded-xl p-1.5 bg-blue-100 text-blue-900">
@@ -369,7 +594,7 @@ export default async function DashboardPage() {
                     <Sparkline
                       values={submissionTrend}
                       className="w-full h-16"
-                      stroke="#2340d9"
+                      stroke="oklch(0.46 0.21 264)"
                       fill="rgba(35,64,217,0.08)"
                     />
                   </div>
@@ -381,7 +606,7 @@ export default async function DashboardPage() {
               </Tile>
 
               <Tile className="col-span-12 sm:col-span-4 !p-4">
-                <Link href="/settings" className="flex flex-col h-full gap-2">
+                <Link href="/settings" className="flex flex-col h-full gap-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">
                   <PillarBody
                     tone="slate"
                     icon={<Users className="h-4 w-4" />}
@@ -394,7 +619,7 @@ export default async function DashboardPage() {
               </Tile>
 
               <Tile className="col-span-12 sm:col-span-4 !p-4">
-                <Link href="/documents" className="flex flex-col h-full gap-2">
+                <Link href="/documents" className="flex flex-col h-full gap-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">
                   <PillarBody
                     tone="amber"
                     icon={<FileText className="h-4 w-4" />}
@@ -413,48 +638,50 @@ export default async function DashboardPage() {
             <Tile className="col-span-12 sm:col-span-7">
               <div className="flex items-baseline justify-between mb-4">
                 <h2 className="font-[family-name:var(--font-serif)] text-2xl text-blue-950">
-                  Team activity
+                  Recent activity
                 </h2>
                 <Link
-                  href="/analysis"
-                  className="text-xs font-semibold text-[#2340d9] hover:underline"
+                  href="/lineup?type=act"
+                  className="text-xs font-semibold text-brand hover:underline"
                 >
-                  View all →
+                  Open lineup →
                 </Link>
               </div>
-              {recentJudgments && recentJudgments.length > 0 ? (
+              {recentActions.length > 0 ? (
                 <ul className="divide-y divide-slate-200/60 text-sm -mx-1">
-                  {recentJudgments.map((j) => {
-                    const actorEmail = getActorEmail(j.profiles)
-                    const actor = actorEmail?.split("@")[0] ?? "someone"
-                    return (
-                      <li key={j.id} className="px-1 py-3 flex items-center gap-3">
-                        <span className={cn("h-2 w-2 rounded-full shrink-0", verdictDot(j.verdict))} />
-                        <div className="flex-1 min-w-0 flex items-center justify-between gap-3">
-                          <div className="truncate">
-                            <span className="font-semibold text-slate-900 capitalize">{actor}</span>{" "}
-                            <span className="text-slate-700">
-                              verdict · {j.verdict ?? "skip"}
-                            </span>
-                          </div>
-                          <div className="text-xs text-slate-500 tabular-nums">
-                            {new Date(j.updated_at).toLocaleDateString()}
-                          </div>
+                  {recentActions.map((ev) => (
+                    <li key={ev.key} className="px-1 py-3 flex items-center gap-3">
+                      <span
+                        className={cn(
+                          "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
+                          feedTone(ev.kind),
+                        )}
+                      >
+                        <FeedIcon kind={ev.kind} />
+                      </span>
+                      <div className="flex-1 min-w-0 flex items-center justify-between gap-3">
+                        <div className="truncate">
+                          <span className="font-semibold text-slate-900">{ev.actName}</span>{" "}
+                          <span className="text-slate-700">· {ev.detail}</span>
                         </div>
-                      </li>
-                    )
-                  })}
+                        <div className="text-xs text-slate-500 tabular-nums shrink-0">
+                          {relativeTime(ev.at)}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
                 </ul>
               ) : (
                 <p className="text-sm text-slate-600 italic py-4">
-                  No verdicts cast yet. Start judging to fill the timeline.
+                  No act-management activity yet. Email a team-yes act or place
+                  one on the board to start the feed.
                 </p>
               )}
             </Tile>
 
-            <Tile className="col-span-12 sm:col-span-5 bg-gradient-to-br from-blue-950 via-blue-900 to-[#2340d9] !border-transparent text-white">
+            <Tile className="col-span-12 sm:col-span-5 bg-gradient-to-br from-blue-950 via-blue-900 to-brand !border-transparent text-white">
               <div className="flex flex-col h-full justify-between gap-5">
-                <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-blue-200">
+                <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-blue-100">
                   Ticket goal
                 </div>
                 <div>
@@ -462,11 +689,11 @@ export default async function DashboardPage() {
                     <span className="font-mono font-semibold text-5xl tabular-nums leading-none">
                       {TICKET_STUBS.ticketSales}
                     </span>
-                    <span className="font-[family-name:var(--font-serif)] italic text-xl text-blue-200">
+                    <span className="font-[family-name:var(--font-serif)] italic text-xl text-blue-100">
                       / {TICKET_STUBS.ticketGoal}
                     </span>
                   </div>
-                  <div className="text-sm text-blue-200/90 mt-2">
+                  <div className="text-sm text-blue-100 mt-2">
                     tickets sold · not yet on sale
                   </div>
                 </div>
@@ -477,7 +704,7 @@ export default async function DashboardPage() {
                       style={{ width: `${Math.max(2, ticketPct)}%` }}
                     />
                   </div>
-                  <div className="text-xs text-blue-200/90 mt-2 inline-flex items-center gap-1">
+                  <div className="text-xs text-blue-100 mt-2 inline-flex items-center gap-1">
                     <span>On-sale target: {TICKET_STUBS.ticketOnSaleDate}</span>
                     <ArrowUpRight className="h-3 w-3" />
                   </div>
@@ -502,23 +729,19 @@ export default async function DashboardPage() {
   )
 }
 
-function getActorEmail(profile: unknown): string | null {
-  if (!profile) return null
-  if (Array.isArray(profile)) {
-    const first = profile[0] as { email?: string } | undefined
-    return first?.email ?? null
-  }
-  return (profile as { email?: string }).email ?? null
+function feedTone(kind: FeedKind): string {
+  return {
+    email: "bg-blue-100 text-blue-900",
+    placement: "bg-amber-100 text-amber-900",
+    programming: "bg-emerald-100 text-emerald-900",
+  }[kind]
 }
 
-function verdictDot(verdict: string | null) {
-  return (
-    {
-      yes: "bg-emerald-500",
-      no: "bg-rose-400",
-      maybe: "bg-amber-400",
-    }[verdict ?? ""] ?? "bg-slate-400"
-  )
+function FeedIcon({ kind }: { kind: FeedKind }) {
+  const cls = "h-3.5 w-3.5"
+  if (kind === "email") return <Send className={cls} />
+  if (kind === "placement") return <LayoutGrid className={cls} />
+  return <CalendarRange className={cls} />
 }
 
 function SectionHeader({ title, count }: { title: string; count: string }) {
@@ -540,7 +763,7 @@ function Tile({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-white/70 bg-white/65 backdrop-blur-xl p-5 shadow-[0_8px_28px_-18px_rgba(30,58,138,0.22)] transition hover:bg-white/80 relative",
+        "rounded-2xl border border-white/70 bg-white/80 backdrop-blur-xl p-5 shadow-tile transition hover:bg-white/90 relative",
         className,
       )}
     >
@@ -593,16 +816,24 @@ function ProgressRing({
   percent,
   size = 160,
   stroke = 8,
+  ariaLabel,
 }: {
   percent: number
   size?: number
   stroke?: number
+  ariaLabel?: string
 }) {
   const r = (size - stroke) / 2
   const circ = 2 * Math.PI * r
   const offset = circ - (percent / 100) * circ
   return (
-    <svg width={size} height={size} className="-rotate-90">
+    <svg
+      width={size}
+      height={size}
+      className="-rotate-90"
+      role="img"
+      aria-label={ariaLabel ?? `${Math.round(percent)} percent`}
+    >
       <circle
         cx={size / 2}
         cy={size / 2}
@@ -615,13 +846,13 @@ function ProgressRing({
         cx={size / 2}
         cy={size / 2}
         r={r}
-        stroke="#2340d9"
+        stroke="oklch(0.46 0.21 264)"
         strokeWidth={stroke}
         fill="none"
         strokeDasharray={circ}
         strokeDashoffset={offset}
         strokeLinecap="round"
-        className="transition-all"
+        className="transition-all motion-reduce:transition-none"
       />
     </svg>
   )
@@ -660,8 +891,15 @@ function Sparkline({
       </div>
     )
   }
+  const total = values.reduce((a, b) => a + b, 0)
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className={className}>
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      preserveAspectRatio="none"
+      className={className}
+      role="img"
+      aria-label={`Submission trend over the last ${values.length} days, ${total} total`}
+    >
       <path d={area} fill={fill} />
       <path
         d={line}

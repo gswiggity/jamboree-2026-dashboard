@@ -2,8 +2,63 @@
 
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
+import type { ActStatus } from "@/lib/act-status"
 
 type ActionResult = { ok: true } | { ok: false; error: string }
+
+// Revalidate every surface that renders an act-status pill or pipeline count.
+function revalidateActStatusSurfaces(submissionId: string) {
+  revalidatePath(`/submissions/${submissionId}`)
+  revalidatePath("/submissions")
+  revalidatePath("/lineup")
+  revalidatePath("/performers")
+  revalidatePath("/dashboard")
+}
+
+// Advance (or correct, with reset) an act's pipeline status. The DB function
+// set_act_status() is the source of truth: it enforces the transition guard and
+// stamps act_status_changed_by = auth.uid() under SECURITY DEFINER, so the
+// changed_by audit can't be spoofed and steps can't be skipped from the client.
+export async function setActStatus(
+  submissionId: string,
+  nextStatus: ActStatus,
+  reset = false,
+): Promise<ActionResult> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Not authenticated." }
+
+  const { error } = await supabase.rpc("set_act_status", {
+    p_submission_id: submissionId,
+    p_next: nextStatus,
+    p_reset: reset,
+  })
+  if (error) return { ok: false, error: error.message }
+
+  revalidateActStatusSurfaces(submissionId)
+  return { ok: true }
+}
+
+// Remove an act from the pipeline entirely (back to no status).
+export async function clearActStatus(
+  submissionId: string,
+): Promise<ActionResult> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: "Not authenticated." }
+
+  const { error } = await supabase.rpc("clear_act_status", {
+    p_submission_id: submissionId,
+  })
+  if (error) return { ok: false, error: error.message }
+
+  revalidateActStatusSurfaces(submissionId)
+  return { ok: true }
+}
 
 export async function saveJudgment(
   submissionId: string,

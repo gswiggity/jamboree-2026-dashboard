@@ -11,6 +11,15 @@ Festival 2026 (3-person organizing team). Tracks act/volunteer/workshop
 submissions imported from Squarespace CSVs, enables team judging with
 private-write/team-read verdicts, and provides summary analysis.
 
+## ⛔ Engineering baselines (read before writing code)
+
+NibbleWare house rules — security, production-readiness, and backups are
+**enforced**; infra-cost is documented guidance. Read before building; run the
+ship checklist before launch and before the festival judging window opens:
+
+- **[docs/ENGINEERING_BASELINES.md](docs/ENGINEERING_BASELINES.md)** — access-control matrix (formalizes the RLS invariants below), secrets/server-side rule, rate limiting, input validation, no-`select('*')`, caching, background work, RPO/backup tiers, infra-cost lens.
+- **[docs/SHIP_CHECKLIST.md](docs/SHIP_CHECKLIST.md)** — pre-launch gate.
+
 ## Stack
 
 - **Next.js 16** (App Router, Server Components, Server Actions, React 19, Turbopack)
@@ -66,6 +75,61 @@ enforced in three places:
   a service-role key in client code.
 - DB types in [lib/database.types.ts](lib/database.types.ts). Regen after
   every migration.
+
+## Design language
+
+The dashboard runs an editorial-festival language, **not** plain shadcn
+defaults. Every page must look like part of the same product as the
+dashboard hero. Don't reach for `<Card>` + `text-3xl font-semibold
+tracking-tight` — that is the failure mode.
+
+**Page H1s** — use [`<PageHeader>`](components/ui/page-header.tsx):
+
+```tsx
+<PageHeader
+  kicker="Tickets"
+  title="Box"
+  accent="office"           // italic, text-brand
+  description="…"
+  actions={<Link …>}        // optional
+/>
+```
+
+The pattern is `[Title] [italic accent]` in Instrument Serif on
+`text-blue-950`. Pick an accent word that reads naturally — not every page
+needs one.
+
+**Cards** — use [`<GlassCard>`](components/ui/glass-card.tsx) (rounded-2xl,
+white/80 + backdrop-blur-xl, `shadow-tile`) for top-level surfaces. Plain
+shadcn `<Card>` is fine for nested content blocks inside a glass card, not
+for the page's primary container.
+
+**Brand tokens** (defined in [globals.css](app/globals.css)) — never
+hardcode `#2340d9` or `bg-blue-950` for primary surfaces:
+
+- `--brand` / `bg-brand` / `text-brand` — the editorial accent
+- `--brand-deep` / `bg-brand-deep` — primary CTA surface
+- `--brand-foreground` — text on brand surfaces
+- `--brand-soft` — tint backgrounds
+
+**Shadows** — use the tokens, don't invent per-component values:
+`shadow-tile`, `shadow-nav`, `shadow-pop`, `shadow-empty`.
+
+**Buttons** — `<Button variant="brand">` for primary CTAs across pages. Use
+`size="lg"` or `"pill"` for primary mobile actions; default `h-9` is for
+desktop dense rows.
+
+**Custom pill controls** (filter rails, tabs) — must include a
+`focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2`
+ring. shadcn primitives already have this.
+
+**Motion** — respect `prefers-reduced-motion`. Decorative pings/pulses use
+`motion-reduce:hidden`. Animated transitions use
+`motion-reduce:transition-none`. The global media query in `globals.css`
+catches anything missed.
+
+**Type scale** — Instrument Serif H1, Geist sans body, Shrikhand reserved
+for the wordmark. Don't introduce a fourth font.
 
 ## Auth
 

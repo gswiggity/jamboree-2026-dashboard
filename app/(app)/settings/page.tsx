@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { resolveCurrentPhase, type Phase } from "@/lib/phases"
 import { RoleToggle } from "./role-toggle"
 import { PublishToggle } from "./publish-toggle"
@@ -75,13 +76,12 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Set the festival phase, import submissions, manage your verdict
-          visibility, and administer the team.
-        </p>
-      </div>
+      <PageHeader
+        kicker="Settings"
+        title="Festival"
+        accent="setup"
+        description="Set the festival phase, import submissions, manage your verdict visibility, and administer the team."
+      />
 
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">

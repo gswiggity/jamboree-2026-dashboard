@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { PageHeader } from "@/components/ui/page-header"
 import { BudgetShell } from "./budget-shell"
 import type {
   BudgetCategoryRow,
@@ -45,12 +46,12 @@ export default async function BudgetPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Budget</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Plan festival income and expenses, then track actuals as money moves.
-        </p>
-      </div>
+      <PageHeader
+        kicker="Budget"
+        title="Money"
+        accent="map"
+        description="Plan festival income and expenses, then track actuals as money moves."
+      />
 
       <BudgetShell categories={categoryRows} items={itemRows} />
     </div>

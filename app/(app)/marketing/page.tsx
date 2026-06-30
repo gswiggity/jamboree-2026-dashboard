@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { PageHeader } from "@/components/ui/page-header"
 import { MarketingShell } from "./marketing-shell"
 import {
   CAMPAIGN_KINDS,
@@ -49,13 +50,12 @@ export default async function MarketingPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Marketing</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Track what you&apos;re spending on promotion and which campaigns
-          actually move tickets.
-        </p>
-      </div>
+      <PageHeader
+        kicker="Marketing"
+        title="Audience"
+        accent="growth"
+        description="Track what you're spending on promotion and which campaigns actually move tickets."
+      />
 
       <MarketingShell campaigns={campaignRows} attributedSales={attributedSales} />
     </div>

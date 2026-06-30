@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
 import { getActDisplayName } from "@/lib/solo-act"
 import { DraftsShell } from "./drafts-shell"
 import { ScheduleCanvas } from "./schedule-canvas"
@@ -126,14 +127,16 @@ export default async function ProductionPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Production</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {isAdmin
+      <PageHeader
+        kicker="Production"
+        title="Show"
+        accent="schedule"
+        description={
+          isAdmin
             ? "Build show blocks, save versions, and publish when you're ready."
-            : "The current published program. Comment on any block to discuss."}
-        </p>
-      </div>
+            : "The current published program. Comment on any block to discuss."
+        }
+      />
 
       {isAdmin ? (
         <DraftsShell

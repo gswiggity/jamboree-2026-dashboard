@@ -5,6 +5,12 @@ import { SUBMISSION_TYPES, TYPE_LABELS, type SubmissionType } from "@/lib/csv"
 import { buildCanonicalActFacets, canonicalActType } from "@/lib/act-types"
 import { classify } from "@/lib/lineup-tiers"
 import {
+  ACT_STATUS_LABEL,
+  ACT_STATUS_ORDER,
+  isActStatus,
+  type ActStatus,
+} from "@/lib/act-status"
+import {
   getActDisplayName,
   getActSubmitter,
   isSoloAct,
@@ -12,6 +18,7 @@ import {
 import { cn } from "@/lib/utils"
 import { toEmbedUrl } from "@/lib/video"
 import { InlineVerdict, type Verdict } from "@/components/inline-verdict"
+import { ActStatusPill } from "@/components/act-status-pill"
 import { ActFacetsPicker } from "./facets-picker"
 import { RowVideoButton } from "./row-video-button"
 import { RowTrashButton } from "./row-trash-button"
@@ -19,12 +26,14 @@ import { RowTrashButton } from "./row-trash-button"
 type Search = {
   type?: string
   filter?: string
+  status?: string
   actType?: string
   location?: string
   view?: string
 }
 
 type FilterKey = "all" | "team_yes" | "unjudged" | "yes" | "maybe" | "no"
+type StatusFilterKey = "all" | ActStatus
 
 function isType(v: string | undefined): v is SubmissionType {
   return v === "act" || v === "volunteer" || v === "workshop"
@@ -99,6 +108,8 @@ export default async function SubmissionsPage({
   const params = await searchParams
   const type: SubmissionType = isType(params.type) ? params.type : "act"
   const filter: FilterKey = isFilter(params.filter) ? params.filter : "all"
+  const statusFilter: StatusFilterKey =
+    type === "act" && isActStatus(params.status) ? params.status : "all"
   const actTypeRaw = params.actType ?? "all"
   const location = params.location ?? "all"
   const view: "active" | "trash" = params.view === "trash" ? "trash" : "active"
@@ -114,7 +125,7 @@ export default async function SubmissionsPage({
         ? supabase
             .from("submissions")
             .select(
-              "id, type, name, email, submitted_at, created_at, data, supplemental_video_url, deleted_at",
+              "id, type, name, email, submitted_at, created_at, data, supplemental_video_url, deleted_at, act_status",
             )
             .eq("type", type)
             .not("deleted_at", "is", null)
@@ -122,7 +133,7 @@ export default async function SubmissionsPage({
         : supabase
             .from("submissions")
             .select(
-              "id, type, name, email, submitted_at, created_at, data, supplemental_video_url, deleted_at",
+              "id, type, name, email, submitted_at, created_at, data, supplemental_video_url, deleted_at, act_status",
             )
             .eq("type", type)
             .is("deleted_at", null)
@@ -252,7 +263,24 @@ export default async function SubmissionsPage({
     else if (my === "no") filterCounts.no++
   }
 
+  // Pipeline-status counts for the primary act-tab filter row.
+  const statusCounts: Record<StatusFilterKey, number> = {
+    all: narrowedByActFacets.length,
+    team_yes: 0,
+    emailed: 0,
+    accepted: 0,
+    declined: 0,
+    ghosted: 0,
+    programmed: 0,
+  }
+  for (const s of narrowedByActFacets) {
+    if (s.act_status) statusCounts[s.act_status]++
+  }
+
   const filtered = narrowedByActFacets.filter((s) => {
+    // Primary (act tab): pipeline status.
+    if (statusFilter !== "all" && s.act_status !== statusFilter) return false
+    // Secondary: judging verdicts.
     const my = myMap.get(s.id) ?? null
     if (filter === "team_yes") return teamYesIds.has(s.id)
     if (filter === "unjudged") return !my
@@ -267,6 +295,8 @@ export default async function SubmissionsPage({
     const nextFilter = next.filter ?? filter
     if (nextFilter !== "all") sp.set("filter", nextFilter)
     if (nextType === "act") {
+      const nextStatus = next.status ?? statusFilter
+      if (nextStatus !== "all") sp.set("status", nextStatus)
       const nextActType = next.actType ?? actType
       const nextLoc = next.location ?? location
       if (nextActType !== "all") sp.set("actType", nextActType)
@@ -282,6 +312,7 @@ export default async function SubmissionsPage({
     sp.set("type", type)
     if (filter !== "all") sp.set("filter", filter)
     if (type === "act") {
+      if (statusFilter !== "all") sp.set("status", statusFilter)
       if (actType !== "all") sp.set("actType", actType)
       if (location !== "all") sp.set("location", location)
     }
@@ -302,7 +333,7 @@ export default async function SubmissionsPage({
           </div>
           <h1 className="font-[family-name:var(--font-serif)] text-5xl text-blue-950 leading-none">
             {TYPE_LABELS[type]}{" "}
-            <span className="italic text-[#2340d9]">inbox</span>
+            <span className="italic text-brand">inbox</span>
           </h1>
           <p className="text-sm text-slate-700 mt-3 max-w-xl">
             Browse, filter, and judge submissions. Your verdict is saved
@@ -312,9 +343,9 @@ export default async function SubmissionsPage({
         <div className="flex flex-col items-end gap-2">
           <Link
             href={judgeHref}
-            className="inline-flex items-center gap-1.5 rounded-full bg-blue-950 text-white text-sm font-semibold px-4 py-2 hover:bg-blue-900 transition shadow-[0_6px_20px_-10px_rgba(30,58,138,0.4)]"
+            className="inline-flex items-center gap-1.5 rounded-full bg-brand-deep text-white text-sm font-semibold px-4 h-9 hover:bg-brand transition shadow-[0_6px_20px_-10px_oklch(0.27_0.13_265/0.4)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2"
           >
-            <Gavel className="h-3.5 w-3.5" />
+            <Gavel className="h-3.5 w-3.5" aria-hidden="true" />
             Enter judging mode
           </Link>
           {lastUpdatedRow?.updated_at && (
@@ -325,115 +356,128 @@ export default async function SubmissionsPage({
         </div>
       </div>
 
-      {/* CONSOLIDATED CONTROL PANEL */}
-      <div className="rounded-2xl border border-white/70 bg-white/65 backdrop-blur-xl shadow-[0_8px_28px_-18px_rgba(30,58,138,0.18)] overflow-hidden">
-        {/* Type row */}
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-          <span className="text-[10px] uppercase tracking-[0.22em] font-semibold text-slate-500 mr-2 w-12 shrink-0">
-            Type
-          </span>
-          {SUBMISSION_TYPES.map((t) => (
+      {/* TYPE TAB STRIP — clean pills, no panel chrome */}
+      <div className="flex flex-wrap items-center gap-2">
+        {SUBMISSION_TYPES.map((t) => (
+          <Link
+            key={t}
+            href={makeHref({ type: t, filter: "all", status: "all", actType: "all", location: "all", view: undefined })}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-medium transition",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2",
+              t === type && view !== "trash"
+                ? "bg-brand-deep text-white"
+                : "bg-white/70 text-slate-700 hover:text-slate-950 hover:bg-white",
+            )}
+          >
+            {TYPE_LABELS[t]}
+            <span
+              className={cn(
+                "tabular-nums text-xs",
+                t === type && view !== "trash" ? "text-white/75" : "text-slate-500",
+              )}
+            >
+              {typeCounts[t]}
+            </span>
+          </Link>
+        ))}
+        <div className="ml-auto">
+          <Link
+            href={
+              view === "trash"
+                ? makeHref({ view: undefined })
+                : `/submissions?type=${type}&view=trash`
+            }
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-medium transition border",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2",
+              view === "trash"
+                ? "bg-rose-100 text-rose-900 border-rose-200"
+                : "border-transparent text-slate-600 hover:text-slate-950 hover:bg-slate-100/70",
+            )}
+          >
+            {view === "trash" ? "← Active" : "Trash"}
+            {view !== "trash" && (trashCount ?? 0) > 0 && (
+              <span className="tabular-nums text-xs text-slate-500">
+                {trashCount}
+              </span>
+            )}
+          </Link>
+        </div>
+      </div>
+
+      {/* FILTER ROW — single horizontal pill row, with Refine popover for acts */}
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/70 bg-white/80 backdrop-blur-xl shadow-tile px-3 py-2">
+        {FILTERS.map((f) => {
+          const active = filter === f.key
+          const count = filterCounts[f.key]
+          return (
             <Link
-              key={t}
-              href={makeHref({ type: t, filter: "all", actType: "all", location: "all", view: undefined })}
+              key={f.key}
+              href={makeHref({ filter: f.key })}
               className={cn(
                 "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition",
-                t === type && view !== "trash"
-                  ? "bg-blue-950 text-white"
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2",
+                active
+                  ? "bg-brand-deep text-white"
                   : "text-slate-700 hover:text-slate-950 hover:bg-slate-100/70",
               )}
             >
-              {TYPE_LABELS[t]}
+              {f.tone && (
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full",
+                    toneDot(f.tone, active),
+                  )}
+                  aria-hidden="true"
+                />
+              )}
+              {f.label}
               <span
                 className={cn(
                   "tabular-nums text-xs",
-                  t === type && view !== "trash" ? "text-white/70" : "text-slate-500",
+                  active ? "text-white/75" : "text-slate-500",
                 )}
               >
-                {typeCounts[t]}
+                {count}
               </span>
             </Link>
-          ))}
-          <div className="ml-auto">
-            <Link
-              href={
-                view === "trash"
-                  ? makeHref({ view: undefined })
-                  : `/submissions?type=${type}&view=trash`
-              }
+          )
+        })}
+
+        {type === "act" && (
+          <details className="relative ml-auto group">
+            <summary
               className={cn(
-                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition border",
-                view === "trash"
-                  ? "bg-rose-100 text-rose-900 border-rose-200"
-                  : "border-transparent text-slate-600 hover:text-slate-950 hover:bg-slate-100/70",
+                "list-none cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition border",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2",
+                facetsActive
+                  ? "border-brand/30 bg-brand/5 text-brand-deep"
+                  : "border-transparent text-slate-700 hover:text-slate-950 hover:bg-slate-100/70",
               )}
             >
-              {view === "trash" ? "← Active" : "Trash"}
-              {view !== "trash" && (trashCount ?? 0) > 0 && (
-                <span className="tabular-nums text-xs text-slate-500">
-                  {trashCount}
+              Refine
+              {facetsActive && (
+                <span className="tabular-nums text-xs rounded-full bg-brand-deep text-white px-1.5 py-0.5 font-semibold">
+                  {(actType !== "all" ? 1 : 0) + (location !== "all" ? 1 : 0)}
                 </span>
               )}
-            </Link>
-          </div>
-        </div>
-
-        {/* Filter row */}
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-t border-slate-200/60 bg-slate-50/40">
-          <span className="text-[10px] uppercase tracking-[0.22em] font-semibold text-slate-500 mr-2 w-12 shrink-0">
-            Filter
-          </span>
-          {FILTERS.map((f) => {
-            const active = filter === f.key
-            const count = filterCounts[f.key]
-            return (
-              <Link
-                key={f.key}
-                href={makeHref({ filter: f.key })}
-                className={cn(
-                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition",
-                  active
-                    ? "bg-blue-950 text-white"
-                    : "text-slate-700 hover:text-slate-950 hover:bg-slate-100/70",
-                )}
-              >
-                {f.tone && (
-                  <span
-                    className={cn(
-                      "h-1.5 w-1.5 rounded-full",
-                      toneDot(f.tone, active),
-                    )}
-                  />
-                )}
-                {f.label}
-                <span
-                  className={cn(
-                    "tabular-nums text-xs",
-                    active ? "text-white/70" : "text-slate-500",
-                  )}
-                >
-                  {count}
-                </span>
-              </Link>
-            )
-          })}
-        </div>
-
-        {/* Facets row (acts only) */}
-        {type === "act" && (
-          <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-t border-slate-200/60">
-            <span className="text-[10px] uppercase tracking-[0.22em] font-semibold text-slate-500 mr-2 w-12 shrink-0">
-              Refine
-            </span>
-            <ActFacetsPicker
-              typeFacets={typeFacets}
-              locationFacets={locationFacets}
-              selectedActType={actType}
-              selectedLocation={location}
-              type={type}
-              filter={filter}
-            />
-          </div>
+              <span className="text-[10px] text-slate-500 group-open:rotate-180 transition-transform" aria-hidden="true">▾</span>
+            </summary>
+            <div className="absolute right-0 top-full mt-2 w-[min(420px,calc(100vw-2rem))] z-30 rounded-2xl border border-white/70 bg-white/95 backdrop-blur-xl shadow-pop p-3">
+              <div className="text-[10px] uppercase tracking-[0.22em] font-semibold text-slate-500 mb-2 px-1">
+                Filter by act type / location
+              </div>
+              <ActFacetsPicker
+                typeFacets={typeFacets}
+                locationFacets={locationFacets}
+                selectedActType={actType}
+                selectedLocation={location}
+                type={type}
+                filter={filter}
+              />
+            </div>
+          </details>
         )}
       </div>
 
@@ -460,7 +504,7 @@ export default async function SubmissionsPage({
             </p>
             <p className="text-xs text-slate-500">Newest first</p>
           </div>
-          <div className="rounded-2xl border border-white/70 bg-white/65 backdrop-blur-xl overflow-hidden divide-y divide-slate-200/60 shadow-[0_8px_28px_-18px_rgba(30,58,138,0.18)]">
+          <div className="rounded-2xl border border-white/70 bg-white/80 backdrop-blur-xl overflow-hidden divide-y divide-slate-200/60 shadow-tile">
             {filtered.map((s) => {
               const my = myMap.get(s.id) ?? null
               const myVerdict: Verdict | null =
@@ -679,7 +723,7 @@ function EmptyState({
   clearHref: string
 }) {
   return (
-    <div className="mx-auto max-w-xl rounded-3xl border border-white/70 bg-white/70 backdrop-blur-xl p-10 shadow-[0_16px_44px_-20px_rgba(30,58,138,0.25)] text-center">
+    <div className="mx-auto max-w-xl rounded-3xl border border-white/70 bg-white/85 backdrop-blur-xl p-10 shadow-empty text-center">
       <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-blue-900">
         <Inbox className="h-5 w-5" />
       </div>
@@ -695,14 +739,14 @@ function EmptyState({
         {hasFilters ? (
           <Link
             href={clearHref}
-            className="inline-flex items-center gap-1.5 rounded-full bg-blue-950 text-white text-sm font-semibold px-4 py-2 hover:bg-blue-900"
+            className="inline-flex items-center gap-1.5 rounded-full bg-brand-deep text-white text-sm font-semibold px-4 h-9 hover:bg-brand transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2"
           >
             Clear filters
           </Link>
         ) : (
           <Link
             href="/settings"
-            className="inline-flex items-center gap-1.5 rounded-full bg-blue-950 text-white text-sm font-semibold px-4 py-2 hover:bg-blue-900"
+            className="inline-flex items-center gap-1.5 rounded-full bg-brand-deep text-white text-sm font-semibold px-4 h-9 hover:bg-brand transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2"
           >
             Import a CSV →
           </Link>

@@ -10,6 +10,7 @@ import { EmailedToggle } from "@/components/emailed-toggle"
 import { VideoLinkEditor } from "@/components/video-link-editor"
 import { TYPE_LABELS, type SubmissionType } from "@/lib/csv"
 import { classify, type Counts } from "@/lib/lineup-tiers"
+import { isActStatus } from "@/lib/act-status"
 import { getActDisplayName } from "@/lib/solo-act"
 import { cn } from "@/lib/utils"
 import { looksLikeUrl, toEmbedUrl } from "@/lib/video"
@@ -70,7 +71,7 @@ export default async function SubmissionDetailPage({
   const { data: submission, error } = await supabase
     .from("submissions")
     .select(
-      "id, type, name, email, submitted_at, data, created_at, supplemental_video_url, deleted_at, first_emailed_at, first_emailed_by",
+      "id, type, name, email, submitted_at, data, created_at, supplemental_video_url, deleted_at, first_emailed_at, first_emailed_by, act_status",
     )
     .eq("id", id)
     .single()
@@ -225,9 +226,12 @@ export default async function SubmissionDetailPage({
     return `/submissions?${p.toString()}`
   })()
 
-  // Confirmed-act dispatch: a "Team yes" tier on an act flips the page from
-  // the judging-focused view to the new act-profile long-doc layout. Trashed
-  // acts keep the legacy view so triage / restore stays familiar; volunteer
+  // Act-profile dispatch: an act flips from the judging-focused view to the
+  // act-profile long-doc layout once it's in the post-judging pipeline. That's
+  // any non-null act_status (team_yes or beyond, from NIB-92), OR a legacy
+  // consensus "locked" tier for acts confirmed before the status field existed.
+  // Trashed acts keep the legacy view so triage / restore stays familiar; a
+  // true bubble act with no status keeps the compact judging view; volunteer
   // and workshop submissions never flip.
   const allVerdicts = [
     myJudgment?.verdict,
@@ -242,7 +246,7 @@ export default async function SubmissionDetailPage({
   const isConfirmedAct =
     submission.type === "act" &&
     !submission.deleted_at &&
-    classify(counts) === "locked"
+    (isActStatus(submission.act_status) || classify(counts) === "locked")
 
   return (
     <div className="space-y-6">
@@ -351,7 +355,7 @@ export default async function SubmissionDetailPage({
                     original: submission.name,
                   }
             return (
-              <h1 className="text-3xl font-semibold tracking-tight mt-2">
+              <h1 className="font-[family-name:var(--font-serif)] text-4xl text-blue-950 leading-[1.05] mt-2">
                 {display.display}
               </h1>
             )

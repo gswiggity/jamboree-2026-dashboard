@@ -8,6 +8,7 @@ import {
   summarizeWorkshops,
   type SubmissionRow,
 } from "@/lib/analysis"
+import { PageHeader } from "@/components/ui/page-header"
 import { AnalysisTabs } from "./analysis-tabs"
 
 export default async function AnalysisPage() {
@@ -76,12 +77,12 @@ export default async function AnalysisPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Analysis</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Aggregate view. Team verdict totals; no per-user breakdowns.
-        </p>
-      </div>
+      <PageHeader
+        kicker="Analysis"
+        title="Festival"
+        accent="signals"
+        description="Aggregate view. Team verdict totals; no per-user breakdowns."
+      />
 
       <AnalysisTabs
         totalByType={totalByType}

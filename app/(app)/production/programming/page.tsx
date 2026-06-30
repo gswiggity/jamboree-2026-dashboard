@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { buttonVariants } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
 import { ArrowRightIcon, ClockIcon, MapPinIcon, MicIcon, SparklesIcon, UsersIcon } from "lucide-react"
 import { getActDisplayName } from "@/lib/solo-act"
 import { FESTIVAL_DAYS } from "../festival"
@@ -286,19 +287,19 @@ function KindBadge({ kind }: { kind: string | null | undefined }) {
 
 function Header() {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-3">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Programming</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Match approved acts to each show block, set act lengths, and build the billing.
-        </p>
-      </div>
-      <Link
-        href="/production"
-        className={buttonVariants({ variant: "outline", size: "sm" })}
-      >
-        Schedule view
-      </Link>
-    </div>
+    <PageHeader
+      kicker="Programming"
+      title="Show"
+      accent="builder"
+      description="Match approved acts to each show block, set act lengths, and build the billing."
+      actions={
+        <Link
+          href="/production"
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          Schedule view
+        </Link>
+      }
+    />
   )
 }

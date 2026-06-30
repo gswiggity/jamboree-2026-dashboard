@@ -188,6 +188,47 @@ export type Database = {
           },
         ]
       }
+      festival_info: {
+        Row: {
+          body_md: string
+          created_at: string
+          display_order: number
+          id: string
+          slug: string
+          title: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          body_md?: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          slug: string
+          title: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          body_md?: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          slug?: string
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "festival_info_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       festival_settings: {
         Row: {
           id: boolean
@@ -797,6 +838,9 @@ export type Database = {
       }
       submissions: {
         Row: {
+          act_status: Database["public"]["Enums"]["act_status"] | null
+          act_status_changed_at: string | null
+          act_status_changed_by: string | null
           created_at: string
           data: Json
           deleted_at: string | null
@@ -813,6 +857,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          act_status?: Database["public"]["Enums"]["act_status"] | null
+          act_status_changed_at?: string | null
+          act_status_changed_by?: string | null
           created_at?: string
           data?: Json
           deleted_at?: string | null
@@ -829,6 +876,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          act_status?: Database["public"]["Enums"]["act_status"] | null
+          act_status_changed_at?: string | null
+          act_status_changed_by?: string | null
           created_at?: string
           data?: Json
           deleted_at?: string | null
@@ -850,6 +900,48 @@ export type Database = {
             columns: ["source_import_id"]
             isOneToOne: false
             referencedRelation: "imports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      talent_profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string
+          id: string
+          submission_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email: string
+          id?: string
+          submission_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string
+          id?: string
+          submission_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "talent_profiles_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submission_verdict_counts"
+            referencedColumns: ["submission_id"]
+          },
+          {
+            foreignKeyName: "talent_profiles_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submissions"
             referencedColumns: ["id"]
           },
         ]
@@ -908,6 +1000,108 @@ export type Database = {
           },
           {
             foreignKeyName: "tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tech_bookings: {
+        Row: {
+          booked_by: string | null
+          created_at: string
+          ends_at: string
+          id: string
+          notes: string | null
+          starts_at: string
+          submission_id: string
+          tech_support_needed: string
+          updated_at: string
+          window_id: string
+        }
+        Insert: {
+          booked_by?: string | null
+          created_at?: string
+          ends_at: string
+          id?: string
+          notes?: string | null
+          starts_at: string
+          submission_id: string
+          tech_support_needed: string
+          updated_at?: string
+          window_id: string
+        }
+        Update: {
+          booked_by?: string | null
+          created_at?: string
+          ends_at?: string
+          id?: string
+          notes?: string | null
+          starts_at?: string
+          submission_id?: string
+          tech_support_needed?: string
+          updated_at?: string
+          window_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tech_bookings_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submission_verdict_counts"
+            referencedColumns: ["submission_id"]
+          },
+          {
+            foreignKeyName: "tech_bookings_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submissions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tech_bookings_window_id_fkey"
+            columns: ["window_id"]
+            isOneToOne: false
+            referencedRelation: "tech_windows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tech_windows: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          ends_at: string
+          id: string
+          label: string | null
+          notes: string | null
+          starts_at: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          ends_at: string
+          id?: string
+          label?: string | null
+          notes?: string | null
+          starts_at: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          ends_at?: string
+          id?: string
+          label?: string | null
+          notes?: string | null
+          starts_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tech_windows_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -1187,10 +1381,36 @@ export type Database = {
       }
     }
     Functions: {
+      claimable_acts: {
+        Args: never
+        Returns: {
+          id: string
+          name: string
+        }[]
+      }
+      clear_act_status: {
+        Args: { p_submission_id: string }
+        Returns: undefined
+      }
       is_admin: { Args: never; Returns: boolean }
+      is_team_member: { Args: never; Returns: boolean }
+      set_act_status: {
+        Args: {
+          p_next: Database["public"]["Enums"]["act_status"]
+          p_reset?: boolean
+          p_submission_id: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
-      [_ in never]: never
+      act_status:
+        | "team_yes"
+        | "emailed"
+        | "accepted"
+        | "declined"
+        | "ghosted"
+        | "programmed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1317,7 +1537,15 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      act_status: [
+        "team_yes",
+        "emailed",
+        "accepted",
+        "declined",
+        "ghosted",
+        "programmed",
+      ],
+    },
   },
 } as const
-

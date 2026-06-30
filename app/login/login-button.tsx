@@ -23,7 +23,13 @@ export function LoginButton() {
   }
 
   return (
-    <Button onClick={signInWithGoogle} size="lg" className="w-full" disabled={loading}>
+    <Button
+      onClick={signInWithGoogle}
+      variant="brand"
+      size="lg"
+      className="w-full"
+      disabled={loading}
+    >
       {loading ? "Redirecting…" : "Sign in with Google"}
     </Button>
   )

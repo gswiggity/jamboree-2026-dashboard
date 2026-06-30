@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { PageHeader } from "@/components/ui/page-header"
 import { TicketsShell } from "./tickets-shell"
 import type {
   CampaignOption,
@@ -70,12 +71,12 @@ export default async function TicketsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Tickets</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Track who&apos;s coming and how much money is landing per show.
-        </p>
-      </div>
+      <PageHeader
+        kicker="Tickets"
+        title="Box"
+        accent="office"
+        description="Track who's coming and how much money is landing per show."
+      />
 
       <TicketsShell
         types={typeRows}
