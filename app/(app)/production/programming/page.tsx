@@ -44,7 +44,7 @@ type LineupBlock = {
   kind: string | null
   theme: string | null
   notes: string | null
-  acts: { name: string | null }[]
+  acts: { name: string | null; duration_minutes: number | null }[]
 }
 
 function buildLineupText(
@@ -64,7 +64,8 @@ function buildLineupText(
       if (desc) lines.push(`   * ${desc}`)
       for (const a of b.acts) {
         const name = a.name?.trim() || "Untitled"
-        lines.push(`      * ${name}`)
+        const mins = a.duration_minutes ?? null
+        lines.push(mins ? `      * ${name} (${mins} min)` : `      * ${name}`)
       }
     }
     sections.push(lines.join("\n"))
@@ -210,7 +211,10 @@ export default async function ProgrammingIndexPage({
         kind: b.kind,
         theme: b.theme,
         notes: b.notes,
-        acts: (tagsByBlock.get(b.id) ?? []).map((a) => ({ name: a.name })),
+        acts: (tagsByBlock.get(b.id) ?? []).map((a) => ({
+          name: a.name,
+          duration_minutes: a.duration_minutes,
+        })),
       })),
     })),
   )
